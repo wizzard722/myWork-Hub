@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from core import accounts
 from core.accounts import LoginResult
+from core.audit import RequestInfo
 from core.deps import DbDep, HostSlugDep, PrincipalDep, SettingsDep, SignerDep
 from core.routers.schemas import (
     LoginIn,
@@ -71,7 +72,11 @@ async def login(
 ) -> SessionOut:
     slug = host_slug or (body.tenant.strip().lower() if body.tenant else None)
     found = await accounts.authenticate(
-        db, email=body.email, password=body.password, tenant_slug=slug
+        db,
+        email=body.email,
+        password=body.password,
+        tenant_slug=slug,
+        info=RequestInfo.from_request(request),
     )
     if found is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mailadres of wachtwoord klopt niet")
@@ -94,7 +99,9 @@ async def refresh(
     _require_csrf_header(x_hub_request)
     result = None
     if mw_refresh:
-        result = await accounts.rotate_session(db, mw_refresh, settings.refresh_token_days)
+        result = await accounts.rotate_session(
+            db, mw_refresh, settings.refresh_token_days, RequestInfo.from_request(request)
+        )
     if result is None or (host_slug is not None and result.tenant.slug != host_slug):
         expired = JSONResponse({"detail": "Sessie verlopen"}, status.HTTP_401_UNAUTHORIZED)
         expired.delete_cookie(REFRESH_COOKIE, path=_cookie_path(request))
@@ -111,7 +118,7 @@ async def logout(
 ) -> Response:
     _require_csrf_header(x_hub_request)
     if mw_refresh:
-        await accounts.end_session(db, mw_refresh)
+        await accounts.end_session(db, mw_refresh, RequestInfo.from_request(request))
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(REFRESH_COOKIE, path=_cookie_path(request))
     return response
@@ -126,14 +133,24 @@ async def me(principal: PrincipalDep, db: DbDep) -> UserOut:
 
 
 @router.patch("/me", response_model=UserOut)
-async def update_me(body: MeUpdate, principal: PrincipalDep, db: DbDep) -> UserOut:
+async def update_me(
+    body: MeUpdate, request: Request, principal: PrincipalDep, db: DbDep
+) -> UserOut:
     user = await accounts.update_user(
-        db, principal, principal.user_id, display_name=body.display_name
+        db,
+        principal,
+        principal.user_id,
+        display_name=body.display_name,
+        info=RequestInfo.from_request(request),
     )
     return UserOut.model_validate(user)
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
-async def change_password(body: PasswordChange, principal: PrincipalDep, db: DbDep) -> Response:
-    await accounts.change_own_password(db, principal, body.current_password, body.new_password)
+async def change_password(
+    body: PasswordChange, request: Request, principal: PrincipalDep, db: DbDep
+) -> Response:
+    await accounts.change_own_password(
+        db, principal, body.current_password, body.new_password, RequestInfo.from_request(request)
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -42,6 +42,27 @@ export interface User {
   last_login_at: string | null;
 }
 
+export interface AuditEntry {
+  id: number;
+  occurred_at: string;
+  actor_type: "user" | "assistant" | "system";
+  actor_email: string | null;
+  actor_role: string | null;
+  action: string;
+  outcome: "success" | "denied" | "failure";
+  target_type: string | null;
+  target_id: string | null;
+  details: Record<string, unknown>;
+  ip: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  next_before_id: number | null;
+}
+
 export interface Session {
   access_token: string;
   expires_in: number;
@@ -157,6 +178,20 @@ export const api = {
   updateUser: (id: string, data: Partial<Pick<User, "display_name" | "role" | "is_active">>) =>
     json<User>(`/users/${id}`, { method: "PATCH", body: body(data) }),
   deleteUser: (id: string) => json<void>(`/users/${id}`, { method: "DELETE" }),
+
+  audit: (params: Record<string, string | number | undefined>) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    }
+    return json<AuditPage>(`/audit?${query}`);
+  },
+  verifyAudit: () => json<{ valid: boolean; checked: number; first_invalid_id: number | null }>("/audit/verify"),
+  async exportAudit(): Promise<Blob> {
+    const response = await send("/audit/export.csv");
+    if (!response.ok) throw await parseError(response);
+    return response.blob();
+  },
 
   saveTheme: (theme: Theme) => json<Theme>("/theme", { method: "PUT", body: body(theme) }),
   resetTheme: () => json<void>("/theme", { method: "DELETE" }),

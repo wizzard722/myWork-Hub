@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 
 from core import accounts
+from core.audit import Actor, RequestInfo
 from core.deps import DbDep, HostSlugDep, PrincipalDep, SettingsDep, SignerDep
 from core.models import Tenant
 from core.routers.auth import _session_response
@@ -55,13 +56,12 @@ async def current_tenant(principal: PrincipalDep, db: DbDep) -> TenantOut:
 
 
 @router.patch("/tenant", response_model=TenantOut)
-async def update_tenant(body: TenantUpdate, principal: PrincipalDep, db: DbDep) -> TenantOut:
-    if principal.role != "owner":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Alleen voor eigenaren")
-    # Tenants zijn alleen in systeemcontext te wijzigen (RLS); beperk tot de eigen klant.
-    async with db.system_session() as session:
-        tenant = await session.get(Tenant, principal.tenant_id, with_for_update=True)
-        tenant.name = body.name.strip()
+async def update_tenant(
+    body: TenantUpdate, request: Request, principal: PrincipalDep, db: DbDep
+) -> TenantOut:
+    tenant = await accounts.rename_tenant(
+        db, principal, body.name, RequestInfo.from_request(request)
+    )
     return TenantOut.model_validate(tenant)
 
 
@@ -83,6 +83,8 @@ async def signup(
         owner_email=body.email,
         owner_password=body.password,
         owner_name=body.display_name,
+        actor=Actor.system("aanmelding"),
+        info=RequestInfo.from_request(request),
     )
     result = await accounts.start_session(db, owner, tenant, settings.refresh_token_days)
     return _session_response(result, signer, response, request, settings)

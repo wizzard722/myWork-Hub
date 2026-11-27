@@ -2,6 +2,7 @@
 
 from alembic import context
 
+import core.audit  # noqa: F401  (registreert AuditEntry)
 from core.models import Base
 
 connection = context.config.attributes["connection"]

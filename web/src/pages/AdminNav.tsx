@@ -4,6 +4,7 @@ export function AdminNav({ route }: { route: string }) {
   const items = [
     { href: "#/beheer/gebruikers", path: "/beheer/gebruikers", label: "Gebruikers", icon: "users" },
     { href: "#/beheer/thema", path: "/beheer/thema", label: "Thema", icon: "palette" },
+    { href: "#/beheer/audit", path: "/beheer/audit", label: "Auditlog", icon: "log" },
   ] as const;
   return (
     <nav className="tabs" aria-label="Beheer">

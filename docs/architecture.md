@@ -240,6 +240,9 @@ docker compose run --rm --entrypoint python core -m core.cli generate-key
 | `GET /theme`, `GET /theme/theme.css` | iedereen | Thema (subdomein of `?tenant=`) |
 | `PUT`/`DELETE /theme` | beheerder | Thema opslaan of terugzetten |
 | `GET /.well-known/jwks.json` | iedereen | Publieke sleutel voor tokens |
+| `GET /audit`, `GET /audit/verify`, `GET /audit/export.csv` | beheerder | Auditlog inzien, controleren, exporteren (zie `docs/security.md`) |
+| `POST /audit/events` | ingelogd | Handeling van de assistent vastleggen |
+| `GET /tls/ask` | proxy | Mag de proxy een certificaat aanvragen voor dit (sub)domein? |
 | `GET /apps` | iedereen | Status van apps (fase 3: per klant en met inloggen) |
 
 Volledige documentatie: `http://localhost:8080/api/core/docs`.
@@ -272,8 +275,8 @@ Gekozen ontwerp: **variant B — app-dock bovenin** (zie de mockups).
 - Bovenbalk in de hoofdkleur met merk, dock (Start, de bereikbare apps, Beheer voor
   beheerders) en account/uitloggen. Op een telefoon komt de dock op een eigen regel.
 - Start: begroeting, zoekveld (filtert apps) en app-tegels met status.
-- Beheer: gebruikers (toevoegen, rol, in-/uitschakelen, verwijderen) en thema
-  (naam, logo, kleuren).
+- Beheer: gebruikers (toevoegen, rol, in-/uitschakelen, verwijderen), thema
+  (naam, logo, kleuren) en auditlog (filters, integriteitscontrole, CSV-export).
 - Routering via de hash (`#/`, `#/beheer/gebruikers`, `#/beheer/thema`, `#/apps/<id>`).
   App-schermen inladen volgt in fase 5.
 
@@ -325,6 +328,7 @@ Alle tests staan in de repository en draaien in CI (`.github/workflows/ci.yml`).
 | --- | --- | --- | --- |
 | Unit — SDK | `packages/sdk/tests/` | Manifest-validatie, standaard-endpoints | `uv run pytest` |
 | Unit — core | `services/core/tests/test_theming.py`, `test_registry.py`, `test_security_units.py` | Theming (ook CSS-injectie, ETag), app-register, subdomeinen, wachtwoorden, tokens | `uv run pytest` |
+| Auditlog — core | `services/core/tests/test_audit.py` | Alle handelingen vastgelegd (ook geweigerd), IP/request-id, filters, export, onveranderbaar (ook voor superuser), manipulatie gedetecteerd | `uv run pytest` |
 | Database — core | `services/core/tests/test_auth.py`, `test_users_and_tenancy.py` | Inloggen, sessies, rotatie, rollen, gebruikersbeheer, thema per klant, CLI, Row-Level Security in PostgreSQL (tijdelijke database; vereist PostgreSQL-programma's of `HUB_TEST_DATABASE_URL`) | `uv run pytest` |
 | Unit — apps | `apps/<id>/tests/` | API en manifest van de app | `uv run pytest` |
 | Deployment | `tests/deploy/` | Compose en Kubernetes gelijk, probes, limieten, non-root, HPA/PDB, naamgeving | `uv run pytest` |
@@ -414,9 +418,10 @@ mywork-hub/
 │       │   ├── migrate.py             Migreren met advisory lock
 │       │   ├── security.py            Argon2id, JWT (Ed25519), JWKS, refresh-tokens
 │       │   ├── tenancy.py             Klant uit subdomein
-│       │   ├── accounts.py            Klanten, gebruikers, sessies (servicelaag)
+│       │   ├── accounts.py            Klanten, gebruikers, sessies (servicelaag, met audit)
+│       │   ├── audit.py               Auditlog: vastleggen, hash-keten, verificatie
 │       │   ├── deps.py                FastAPI-afhankelijkheden (ingelogde gebruiker, rollen)
-│       │   ├── routers/               API: auth, users, tenants, schemas
+│       │   ├── routers/               API: auth, users, tenants, audit, schemas
 │       │   ├── theming.py             Thema per klant als JSON en CSS
 │       │   ├── registry.py            App-register en statuscontrole
 │       │   └── cli.py                 Beheeropdrachten (create-tenant, migrate, generate-key)
@@ -435,7 +440,7 @@ mywork-hub/
 │   │   ├── auth/AuthProvider.tsx      Inlogstatus, sessie hervatten, uitloggen
 │   │   ├── theme/ThemeProvider.tsx    Thema van de klant (naam, logo, favicon, theme.css)
 │   │   ├── components/                Shell (variant B), Icon, hash-routering
-│   │   ├── pages/                     Inloggen, Start, Gebruikers, Thema
+│   │   ├── pages/                     Inloggen, Start, Gebruikers, Thema, Auditlog
 │   │   ├── styles.css                 Alleen --mw-*-variabelen
 │   │   └── __tests__/                 Frontend-tests (Vitest)
 │   ├── nginx.conf / Dockerfile        nginx (Alpine), poort 8080, uid 65532

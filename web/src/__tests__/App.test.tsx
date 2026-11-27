@@ -192,3 +192,45 @@ describe("styles", () => {
     expect(blocks.every((selector) => selector.endsWith(":where(:root)"))).toBe(true);
   });
 });
+
+describe("auditlog", () => {
+  const entry = {
+    id: 7,
+    occurred_at: "2026-11-27T14:00:00Z",
+    actor_type: "user",
+    actor_email: "eigenaar@acme.nl",
+    actor_role: "owner",
+    action: "user.role_changed",
+    outcome: "success",
+    target_type: "user",
+    target_id: "u2",
+    details: { email: "lid@acme.nl", changes: { role: ["member", "admin"] } },
+    ip: "203.0.113.7",
+    user_agent: "x",
+    request_id: "r1",
+  };
+
+  it("toont wie wat wanneer deed en controleert de integriteit", async () => {
+    window.location.hash = "#/beheer/audit";
+    mockApi({
+      ...loggedIn(),
+      "GET /audit": { items: [entry, { ...entry, id: 6, action: "auth.login_failed", outcome: "denied", details: { reason: "wachtwoord onjuist" } }], next_before_id: null },
+      "GET /audit/verify": { valid: true, checked: 7, first_invalid_id: null },
+    });
+    render(<App />);
+    expect(await screen.findByText("Rol gewijzigd")).toBeTruthy();
+    expect(screen.getByText(/role: member → admin/)).toBeTruthy();
+    expect(screen.getAllByText("203.0.113.7").length).toBe(2);
+    expect(screen.getByText("Geweigerd", { selector: ".badge" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Integriteit controleren/ }));
+    expect(await screen.findByText(/Integriteit in orde: 7 regels/)).toBeTruthy();
+  });
+
+  it("filtert op handeling", async () => {
+    window.location.hash = "#/beheer/audit";
+    mockApi({ ...loggedIn(), "GET /audit": { items: [], next_before_id: null } });
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("Handeling"), { target: { value: "user." } });
+    await waitFor(() => expect(calls.some((c) => c.url.includes("action=user."))).toBe(true));
+  });
+});

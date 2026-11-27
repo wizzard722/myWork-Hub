@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { Shell } from "./components/Shell";
 import { useHashRoute } from "./components/useHashRoute";
 import { AdminNav } from "./pages/AdminNav";
+import { AuditPage } from "./pages/AuditPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { ThemePage } from "./pages/ThemePage";
@@ -28,7 +29,13 @@ function Hub({ session }: { session: Session }) {
     page = (
       <>
         <AdminNav route={route} />
-        {route === "/beheer/thema" ? <ThemePage /> : <UsersPage session={session} />}
+        {route === "/beheer/thema" ? (
+          <ThemePage />
+        ) : route === "/beheer/audit" ? (
+          <AuditPage />
+        ) : (
+          <UsersPage session={session} />
+        )}
       </>
     );
   } else if (route.startsWith("/apps/")) {

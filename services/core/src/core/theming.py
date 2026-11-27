@@ -19,8 +19,10 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from core import audit
+from core.audit import Actor, RequestInfo
 from core.deps import AdminDep, HostSlugDep
-from core.models import Tenant, TenantTheme
+from core.models import Tenant, TenantTheme, User
 
 # Alleen hex-kleuren: voorkomt dat klantinvoer willekeurige CSS in de stylesheet zet.
 HEX_COLOR = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
@@ -161,10 +163,18 @@ async def save_theme(theme: Theme, request: Request, principal: AdminDep) -> The
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Geen database geconfigureerd")
     async with db.tenant_session(principal.tenant_id) as session:
         stored = await session.get(TenantTheme, principal.tenant_id)
+        before = stored.theme if stored else None
         if stored is None:
             session.add(TenantTheme(tenant_id=principal.tenant_id, theme=theme.model_dump()))
         else:
             stored.theme = theme.model_dump()
+        await _audit(
+            session,
+            principal,
+            request,
+            "theme.updated",
+            {"before": before, "after": theme.model_dump()},
+        )
     return theme
 
 
@@ -177,5 +187,20 @@ async def reset_theme(request: Request, principal: AdminDep) -> Response:
     async with db.tenant_session(principal.tenant_id) as session:
         stored = await session.get(TenantTheme, principal.tenant_id)
         if stored is not None:
+            await _audit(session, principal, request, "theme.reset", {"before": stored.theme})
             await session.delete(stored)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _audit(session, principal, request: Request, action: str, details: dict) -> None:
+    email = await session.scalar(select(User.email).where(User.id == principal.user_id))
+    await audit.record(
+        session,
+        tenant_id=principal.tenant_id,
+        actor=Actor.from_principal(principal, email),
+        action=action,
+        target_type="theme",
+        target_id=principal.tenant_id,
+        details=details,
+        info=RequestInfo.from_request(request),
+    )

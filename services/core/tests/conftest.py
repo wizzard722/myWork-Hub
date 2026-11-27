@@ -117,5 +117,5 @@ def client(settings: Settings, database_url: str) -> Iterator[TestClient]:
     app = create_app(settings)
     with TestClient(app, base_url=f"http://{BASE_DOMAIN}") as test_client:
         dsn = database_url.replace("postgresql+asyncpg://", "postgresql://")
-        asyncio.run(_execute(dsn, "TRUNCATE tenants CASCADE"))
+        asyncio.run(_execute(dsn, "TRUNCATE tenants, audit_log CASCADE"))
         yield test_client

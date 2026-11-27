@@ -166,3 +166,10 @@ th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--mw
 th { font-size: 0.8rem; color: var(--mw-color-text-muted); font-weight: 600; }
 tr:last-child td { border-bottom: 0; }
 .actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.space-between { justify-content: space-between; align-items: center; }
+.space-between h1 { margin: 0; }
+.button { display: inline-flex; align-items: center; gap: 6px; }
+.filters { align-items: flex-end; gap: 12px; }
+.filters .field { min-width: 180px; }
+td.wrap { white-space: normal; min-width: 220px; }

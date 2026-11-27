@@ -15,6 +15,7 @@ from core.config import Settings, load_settings
 from core.db import Database
 from core.migrate import migrate
 from core.registry import router as registry_router
+from core.routers.audit import router as audit_router
 from core.routers.auth import router as auth_router
 from core.routers.tenants import router as tenants_router
 from core.routers.users import router as users_router
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_router)
     app.include_router(tenants_router)
     app.include_router(theming_router)
+    app.include_router(audit_router)
     app.include_router(registry_router)
     return app
 

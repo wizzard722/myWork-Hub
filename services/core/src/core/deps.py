@@ -59,8 +59,22 @@ def current_principal(
     return principal
 
 
-def require_admin(principal: Principal = Depends(current_principal)) -> Principal:
+async def require_admin(
+    request: Request, principal: Principal = Depends(current_principal)
+) -> Principal:
     if not principal.is_admin:
+        db: Database | None = getattr(request.app.state, "db", None)
+        if db is not None:
+            from core.accounts import record_denied  # voorkomt kringimport
+            from core.audit import RequestInfo
+
+            await record_denied(
+                db,
+                principal,
+                f"admin.{request.method.lower()} {request.url.path}",
+                "geen beheerder",
+                RequestInfo.from_request(request),
+            )
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Alleen voor beheerders")
     return principal
 

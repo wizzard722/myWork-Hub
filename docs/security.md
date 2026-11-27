@@ -95,3 +95,46 @@ Redis (uid 999) draaien ook als niet-root, read-only en zonder capabilities.
 Nooit in git. Docker: `.env` (zie `.env.example`). Kubernetes: Secrets `hub-data`
 (PostgreSQL/Redis), `hub-secrets` (database-URL, Redis-URL, JWT-sleutel) en `hub-llm`
 (API-sleutel van de LLM), zie de productie-overlay.
+
+## Auditlog
+
+Elke handeling van beheerders (en ook inloggen, uitloggen en handelingen van de
+assistent) is te herleiden. Code: `services/core/src/core/audit.py`, migratie
+`0002_audit_log.py`, API `routers/audit.py`, scherm Beheer → Auditlog.
+
+**Per regel:** tijdstip, wie (`actor_type` gebruiker/assistent/systeem, e-mail, rol),
+wat (`action`, doel, details zoals oude → nieuwe waarde), uitkomst (gelukt, geweigerd,
+mislukt), IP-adres (echte client-IP via proxy en gateway), user-agent en
+`request_id` (zelfde ID als in de logs van proxy en gateway).
+
+**Vastgelegde handelingen:**
+
+| Groep | Acties |
+| --- | --- |
+| Inloggen | `auth.login`, `auth.login_failed` (met reden), `auth.logout`, `auth.session_reuse_detected` |
+| Organisatie | `tenant.created` (aanmelding of CLI), `tenant.updated` |
+| Gebruikers | `user.created`, `user.updated`, `user.role_changed`, `user.activated`, `user.deactivated`, `user.password_reset`, `user.password_changed`, `user.deleted` |
+| Thema | `theme.updated` (voor en na), `theme.reset` |
+| Beheertoegang | `admin.<methode> <pad>` met uitkomst `denied` als een niet-beheerder een beheerfunctie probeert |
+| Auditlog | `audit.exported` |
+| Assistent | `assistant.tool_call`, `assistant.tool_declined` (namens de gebruiker) |
+
+Geweigerde pogingen (bijv. een beheerder die een eigenaar wil aanmaken) worden ook
+vastgelegd, met uitkomst `denied` en de reden.
+
+**Onveranderbaar en controleerbaar:**
+
+- De applicatierol mag alleen `INSERT` en `SELECT` (geen `UPDATE`/`DELETE`).
+- Een trigger blokkeert `UPDATE` en `DELETE` voor iedereen, ook voor een superuser.
+- **Hash-keten per klant:** elke regel bevat de SHA-256 van de vorige regel plus de
+  eigen inhoud. `GET /api/core/audit/verify` (knop "Integriteit controleren")
+  herberekent de keten; een gewijzigde of verwijderde regel valt direct op — ook als
+  iemand met volledige databasetoegang de trigger uitschakelt (getest).
+- Handeling en auditregel staan in dezelfde transactie: geen handeling zonder regel.
+- Row-Level Security: een klant ziet alleen zijn eigen auditlog; alleen beheerders.
+- Elke regel gaat ook als JSON naar de logger `audit` (stdout), voor doorsturen naar
+  een SIEM of logplatform.
+
+**API:** `GET /audit` (filters `action`, `actor`, `outcome`, paginering
+`before_id`), `GET /audit/verify`, `GET /audit/export.csv`, `POST /audit/events`
+(alleen `assistant.*`, op naam van de ingelogde gebruiker).

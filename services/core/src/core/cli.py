@@ -18,6 +18,7 @@ import os
 import sys
 
 from core.accounts import AccountError, create_tenant
+from core.audit import Actor, RequestInfo
 from core.config import load_settings
 from core.db import Database
 from core.migrate import migrate
@@ -67,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
             owner_email=args.owner_email,
             owner_password=password,
             owner_name=args.owner_name,
+            actor=Actor.system(f"cli:{getpass.getuser()}"),
+            info=RequestInfo(user_agent="core.cli"),
         )
 
     try:
