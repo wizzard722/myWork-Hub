@@ -88,6 +88,29 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
+  # LLM-assistent: bedient apps binnen de rechten van de gebruiker (zie docs/security.md).
+  # Staat uit zolang ANTHROPIC_API_KEY leeg is.
+  assistant:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE: mywork-assistant
+        MODULE: assistant.main
+    image: mywork-hub-assistant:dev
+    environment:
+      ROOT_PATH: /api/assistant
+      HUB_CORE_URL: http://core:8000
+      HUB_REDIS_URL: redis://:${REDIS_PASSWORD:-change-me-too}@redis:6379/1
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      HUB_LLM_MODEL: ${HUB_LLM_MODEL:-claude-opus-5-5}
+    # egress: alleen de assistent mag naar internet (de LLM-API).
+    networks: [internal, data, egress]
+    depends_on:
+      core: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
   web:
     <<: *hardened
     build: ./web

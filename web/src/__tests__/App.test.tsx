@@ -37,7 +37,7 @@ function mockApi(routes: Routes) {
     "fetch",
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const method = (init.method ?? "GET").toUpperCase();
-      const path = url.replace("/api/core", "").split("?")[0];
+      const path = url.replace(/^\/api\/(core|assistant)/, "").split("?")[0];
       calls.push({ method, url, body: init.body as string | undefined });
       const route = routes[`${method} ${path}`];
       if (route === undefined) return new Response(JSON.stringify({ detail: "niet gevonden" }), { status: 404 });
@@ -232,5 +232,53 @@ describe("auditlog", () => {
     render(<App />);
     fireEvent.change(await screen.findByLabelText("Handeling"), { target: { value: "user." } });
     await waitFor(() => expect(calls.some((c) => c.url.includes("action=user."))).toBe(true));
+  });
+});
+
+describe("assistent", () => {
+  const turn = (extra: object) => ({ conversation_id: "c".repeat(32), reply: "", actions: [], pending: [], ...extra });
+
+  it("is verborgen als de assistent uit staat", async () => {
+    mockApi({ ...loggedIn(), "GET /status": { enabled: false, model: null } });
+    render(<App />);
+    await screen.findByText("Je apps");
+    expect(screen.queryByRole("button", { name: "Assistent" })).toBeNull();
+  });
+
+  it("vraagt bevestiging voor wijzigende acties en voert pas daarna uit", async () => {
+    // Zoals in nieuwere Chrome-versies: scrollIntoView geeft een Promise terug.
+    Element.prototype.scrollIntoView = () => Promise.resolve() as unknown as void;
+    const pending = {
+      id: "tu1",
+      app: "core",
+      tool: "change_user_role",
+      title: "Wijzig de rol van een gebruiker",
+      input: { user_id: "u2", role: "admin" },
+      status: "needs_confirmation",
+    };
+    mockApi({
+      ...loggedIn(),
+      "GET /status": { enabled: true, model: "claude-opus-5-5" },
+      "POST /chat": turn({ reply: "Ik maak Sanne beheerder.", pending: [pending] }),
+      "POST /chat/cccccccccccccccccccccccccccccccc/decisions": turn({
+        reply: "Sanne is nu beheerder.",
+        actions: [{ ...pending, status: "executed" }],
+      }),
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Assistent" }));
+    fireEvent.change(screen.getByLabelText("Bericht aan de assistent"), {
+      target: { value: "Maak Sanne beheerder" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Versturen" }));
+    expect(await screen.findByText("Ik maak Sanne beheerder.")).toBeTruthy();
+    expect(screen.getByText(/role: admin/)).toBeTruthy();
+    expect(calls.some((c) => c.url.includes("/decisions"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Uitvoeren" }));
+    expect(await screen.findByText("Sanne is nu beheerder.")).toBeTruthy();
+    const decide = calls.find((c) => c.url.includes("/decisions"))!;
+    expect(JSON.parse(decide.body!)).toEqual({ decisions: { tu1: true } });
+    expect(screen.getByText(/change_user_role — Uitgevoerd/)).toBeTruthy();
   });
 });

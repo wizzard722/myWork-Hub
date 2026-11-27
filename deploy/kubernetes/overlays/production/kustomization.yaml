@@ -8,6 +8,7 @@ resources:
 images:
   - { name: mywork-hub-gateway, newName: ghcr.io/wizzard722/mywork-hub-gateway, newTag: "0.1.0" }
   - { name: mywork-hub-core, newName: ghcr.io/wizzard722/mywork-hub-core, newTag: "0.1.0" }
+  - { name: mywork-hub-assistant, newName: ghcr.io/wizzard722/mywork-hub-assistant, newTag: "0.1.0" }
   - { name: mywork-hub-web, newName: ghcr.io/wizzard722/mywork-hub-web, newTag: "0.1.0" }
   # Apps (bijgewerkt door scripts/new_app.py)
   - { name: mywork-hub-app-hello, newName: ghcr.io/wizzard722/mywork-hub-app-hello, newTag: "0.1.0" }

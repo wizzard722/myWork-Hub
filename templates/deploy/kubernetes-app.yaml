@@ -43,6 +43,7 @@ spec:
           env:
             - { name: ROOT_PATH, value: /api/apps/__APP_ID__ }
             - { name: APP_MANIFEST, value: /app/manifest.yaml }
+            - { name: HUB_CORE_URL, value: http://core:8000 }
           envFrom:
             - configMapRef: { name: hub-config }
             - secretRef: { name: hub-secrets, optional: true }

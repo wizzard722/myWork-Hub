@@ -2,8 +2,8 @@
 
 > **Levend document.** Bij elke wijziging aan de structuur, een service, een app, de
 > deployment of de tests wordt dit bestand in dezelfde commit bijgewerkt.
-> Laatst bijgewerkt: fase 2 (klanten, accounts, inloggen, rechten, Row-Level Security,
-> thema per klant, schil variant B).
+> Laatst bijgewerkt: fase 2+ (Alpine-images, reverse proxy, firewall, auditlog,
+> LLM-assistent, productie-compose).
 
 Documentatie:
 
@@ -31,6 +31,8 @@ apps gebruiken (bestanden, agenda, taken, chat, …).
 | Containers | Alpine Linux met vaste versies, gehardend (geen shell/apk, niet-root) |
 | Data | PostgreSQL en Redis zijn onderdeel van de core hub (Compose én Kubernetes) |
 | Ingang | Reverse proxy (Caddy; in Kubernetes de Ingress-controller) vóór de gateway |
+| Herleidbaarheid | Onveranderbaar auditlog met hash-keten per klant |
+| AI | LLM-assistent die apps bedient met de rechten van de gebruiker, na bevestiging |
 
 ### Waarom losse services voor apps, maar één core?
 
@@ -78,6 +80,10 @@ Voor kleine installaties draait precies hetzelfde met Docker Compose op één ma
 - **app-services**: elk een eigen FastAPI-service, gebouwd op de gedeelde **SDK**
   (`packages/sdk`, Python-pakket `mywork_sdk`).
 - **web**: de schil (inloggen, app-menu, thema) waarin de schermen van apps laden.
+- **assistent**: LLM-assistent (Claude) die met de tools uit de app-manifesten handelingen
+  uitvoert namens de gebruiker, met diens token en na bevestiging (zie `docs/security.md`).
+- **proxy**: publieke reverse proxy (Caddy) met TLS en beveiligingsheaders.
+- **PostgreSQL en Redis**: onderdeel van de core hub.
 
 ## 3. Het app-contract
 
@@ -130,7 +136,7 @@ Elke aanvraag en elk event draagt de klant (tenant) mee; de SDK zet die context 
 ### Klanten (tenants)
 
 - Elke klant heeft een **slug** die ook het subdomein is: `acme` → `acme.<HUB_BASE_DOMAIN>`
-  (in ontwikkeling `acme.localhost:8080`; browsers sturen `*.localhost` naar je eigen
+  (in ontwikkeling `https://acme.localhost`; browsers sturen `*.localhost` naar je eigen
   computer).
 - **Welke klant?** Komt een aanvraag binnen op een subdomein, dan is dat de klant. Zonder
   subdomein (basisdomein, `localhost`, IP-adres) volgt de klant uit het **account**
@@ -245,7 +251,7 @@ docker compose run --rm --entrypoint python core -m core.cli generate-key
 | `GET /tls/ask` | proxy | Mag de proxy een certificaat aanvragen voor dit (sub)domein? |
 | `GET /apps` | iedereen | Status van apps (fase 3: per klant en met inloggen) |
 
-Volledige documentatie: `http://localhost:8080/api/core/docs`.
+Volledige documentatie: `https://localhost/api/core/docs`.
 
 ## 6. Theming
 
@@ -280,6 +286,10 @@ Gekozen ontwerp: **variant B — app-dock bovenin** (zie de mockups).
 - Routering via de hash (`#/`, `#/beheer/gebruikers`, `#/beheer/thema`, `#/apps/<id>`).
   App-schermen inladen volgt in fase 5.
 
+| Auditlog | Assistent (vraagt bevestiging) |
+| --- | --- |
+| ![Auditlog](screenshots/auditlog.png) | ![Assistent](screenshots/assistent.png) |
+
 | Inloggen | Start | Start met eigen thema |
 | --- | --- | --- |
 | ![Inloggen](screenshots/inloggen.png) | ![Start](screenshots/start.png) | ![Eigen thema](screenshots/start-eigen-thema.png) |
@@ -306,7 +316,7 @@ bouwen en publiceren: [containers.md](containers.md).
 | Publieke ingang | `proxy` (Caddy, TLS, headers) op 80/443 | Ingress-controller |
 | Firewall | Gescheiden netwerken + host-firewall (nftables) | NetworkPolicies, standaard alles geweigerd |
 | Instellingen | `.env` | ConfigMap `hub-config`, Secret `hub-secrets` (verplicht: `HUB_DATABASE_URL`, `HUB_JWT_PRIVATE_KEY`) |
-| Subdomeinen | `http://<klant>.localhost:8080` | Ingress voor `hub.example.com` en `*.hub.example.com` (wildcard-certificaat nodig) |
+| Subdomeinen | `https://<klant>.localhost` (via Caddy) | Ingress voor `hub.example.com` en `*.hub.example.com` (wildcard-certificaat nodig) |
 | DNS in gateway | `gateway/env.conf` (Docker-DNS, geen suffix) | ConfigMap `gateway-config` (kube-dns, suffix `.<namespace>.svc.cluster.local`) |
 
 Starten:
@@ -335,6 +345,9 @@ Alle tests staan in de repository en draaien in CI (`.github/workflows/ci.yml`).
 | Integratie | `tests/integration/test_services.py` | Core en app als echte processen die via HTTP praten | `uv run pytest` |
 | Integratie — gateway | `tests/integration/test_gateway.py` | Echte nginx-config van gateway en web: routering, SPA, headers (vereist `nginx` en `dnsmasq`) | `uv run pytest` |
 | Templates | `tests/templates/` | Generator maakt werkende app; `hello` gelijk aan templates; image-lijst compleet | `uv run pytest` |
+| Assistent | `services/assistant/tests/` | Tools binnen de rol, gebruikerstoken doorgegeven, bevestiging vóór wijzigen, weigeren, onbekende tool/ongeldige invoer niet uitgevoerd, privacy van conversaties, auditregels, stap-limiet, verzoek aan de Anthropic API (nagebootst) | `uv run pytest` |
+| SDK — inloggen | `packages/sdk/tests/test_auth.py`, `test_tools.py` | Tokencontrole via JWKS (sleutel, verloop, audience, rol), rollen, tool-specificaties | `uv run pytest` |
+| Productie-compose | `tests/templates/test_images.py` | `docker-compose.prod.yml` actueel, alle images, geen build, verplichte geheimen | `uv run pytest` |
 | Frontend | `web/src/__tests__/` | Inloggen, sessie hervatten, uitloggen, dock en tegels, rollen, gebruikers- en themabeheer, CSS-volgorde | `cd web && npm test` |
 | Kubernetes-schema | CI-job `kubernetes` | Kustomize renderen + kubeconform | alleen CI |
 | Images | CI-job `docker` | uid 65532 en geen shell in elk image | alleen CI |
@@ -382,6 +395,7 @@ mywork-hub/
 ├── pyproject.toml                     uv-workspace, ruff- en pytest-instellingen
 ├── uv.lock                            Vastgezette Python-afhankelijkheden
 ├── docker-compose.yml                 Hele hub op één machine, bouwt zelf (ontwikkeling/test)
+├── docker-compose.prod.yml            Productie: alle images uit de registry (gegenereerd)
 ├── .env.example                       Voorbeeldinstellingen voor Docker
 ├── .dockerignore / .gitignore
 ├── .github/workflows/
@@ -392,10 +406,11 @@ mywork-hub/
 │   ├── architecture.md                Dit document
 │   ├── screenshots/                   Schermafbeeldingen van de web-schil
 │   ├── apps.md                        Handleiding apps ontwikkelen
-│   ├── security.md                    Proxy, gateway, netwerken, firewall
+│   ├── security.md                    Proxy, gateway, netwerken, firewall, auditlog, assistent
 │   └── containers.md                  Gehardende containers, bouwen en publiceren
 ├── scripts/
 │   ├── new_app.py                     Nieuwe app maken uit de templates
+│   ├── make_prod_compose.py           docker-compose.prod.yml genereren
 │   └── images.py                      Alle images opsommen en bouwen
 ├── templates/
 │   ├── app/                           Sjabloon voor apps/<id>/
@@ -405,6 +420,8 @@ mywork-hub/
 │       ├── src/mywork_sdk/
 │       │   ├── manifest.py            AppManifest, EventSpec, load_manifest
 │       │   ├── service.py             create_service: /health en /manifest
+│       │   ├── auth.py                Tokens van de core controleren (JWKS), current_user
+│       │   ├── testing.py             login_as/fake_user voor tests van apps
 │       │   └── serve.py               Starter voor containers zonder shell
 │       └── tests/
 ├── services/
@@ -426,6 +443,15 @@ mywork-hub/
 │       │   ├── registry.py            App-register en statuscontrole
 │       │   └── cli.py                 Beheeropdrachten (create-tenant, migrate, generate-key)
 │       └── tests/                     Unit- en databasetests (conftest start PostgreSQL)
+│   └── assistant/                     LLM-assistent
+│       ├── src/assistant/
+│       │   ├── main.py                API: /status, /chat, /chat/{id}/decisions
+│       │   ├── agent.py               Agent-lus, bevestiging, auditlog
+│       │   ├── tools.py               Tools uit manifesten en core, uitvoeren met gebruikerstoken
+│       │   ├── llm.py                 Koppeling met de Anthropic API (Claude)
+│       │   ├── store.py               Conversaties in Redis
+│       │   └── config.py              Instellingen
+│       └── tests/                     Tests met nep-taalmodel en nagebootste apps
 ├── apps/
 │   └── hello/                         Voorbeeld-app als losse service
 │       ├── manifest.yaml
@@ -439,7 +465,7 @@ mywork-hub/
 │   │   ├── api.ts                     Aanroepen naar de core (token in geheugen, refresh)
 │   │   ├── auth/AuthProvider.tsx      Inlogstatus, sessie hervatten, uitloggen
 │   │   ├── theme/ThemeProvider.tsx    Thema van de klant (naam, logo, favicon, theme.css)
-│   │   ├── components/                Shell (variant B), Icon, hash-routering
+│   │   ├── components/                Shell (variant B), AssistantPanel, Icon, hash-routering
 │   │   ├── pages/                     Inloggen, Start, Gebruikers, Thema, Auditlog
 │   │   ├── styles.css                 Alleen --mw-*-variabelen
 │   │   └── __tests__/                 Frontend-tests (Vitest)

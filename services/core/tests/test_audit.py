@@ -204,3 +204,23 @@ def test_tampering_is_detected(client, database_url):
     result = client.get("/audit/verify", headers=auth(owner)).json()
     assert result["valid"] is False
     assert result["first_invalid_id"] is not None
+
+
+def test_audit_entries_are_logged_as_json(client):
+    import json as _json
+    import logging
+
+    records: list[logging.LogRecord] = []
+
+    class Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = Collect()
+    logging.getLogger("audit").addHandler(handler)
+    try:
+        signup(client, "acme")
+    finally:
+        logging.getLogger("audit").removeHandler(handler)
+    actions = [_json.loads(r.getMessage())["action"] for r in records]
+    assert "tenant.created" in actions

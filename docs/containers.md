@@ -68,6 +68,26 @@ in het image:
 docker build --secret id=ca_bundle,src=ca.crt ...
 ```
 
+## Productie: docker-compose.prod.yml
+
+`docker-compose.prod.yml` bevat **alle benodigde images** voor een complete hub: proxy,
+gateway, core, assistent, web, PostgreSQL, Redis en alle apps. Er wordt niets gebouwd;
+de eigen images komen uit `${HUB_REGISTRY}` (standaard `ghcr.io/wizzard722`) met tag
+`${HUB_VERSION}`.
+
+```bash
+cp .env.example .env     # HUB_DOMAIN, HUB_VERSION, wachtwoorden, HUB_JWT_PRIVATE_KEY, ACME_EMAIL
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec core python -m core.cli create-tenant ...
+```
+
+Het bestand wordt **gegenereerd** uit `docker-compose.yml` door
+`scripts/make_prod_compose.py` (ook automatisch door `scripts/new_app.py`); een test
+controleert dat het actueel is. Verplichte waarden (versie, domein, wachtwoorden, sleutel)
+hebben geen standaard: ontbreken ze, dan stopt Compose met een duidelijke melding.
+Een PEM-sleutel in `.env` zet je tussen dubbele aanhalingstekens (meerdere regels mogen).
+
 ## Images bouwen
 
 ```bash

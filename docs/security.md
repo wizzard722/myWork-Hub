@@ -138,3 +138,42 @@ vastgelegd, met uitkomst `denied` en de reden.
 **API:** `GET /audit` (filters `action`, `actor`, `outcome`, paginering
 `before_id`), `GET /audit/verify`, `GET /audit/export.csv`, `POST /audit/events`
 (alleen `assistant.*`, op naam van de ingelogde gebruiker).
+
+## LLM-assistent
+
+Service `assistant` (`services/assistant/`), achter de gateway op `/api/assistant`, paneel
+in de web-schil (knop met sterretje). Staat uit zolang `ANTHROPIC_API_KEY` leeg is.
+
+**Hoe hij werkt:** de gebruiker vraagt iets; het taalmodel (Claude, standaard
+`claude-opus-5-5`, via de Anthropic API) kiest tools; de assistent voert ze uit bij de
+apps en de core en geeft de resultaten terug aan het model.
+
+**Binnen de rechten van de gebruiker:**
+
+- **Zelfde token:** elke tool-aanroep gaat met het toegangstoken van de gebruiker naar de
+  app of de core. De app controleert zelf de rechten (`mywork_sdk.current_user` /
+  `require_role`); de assistent heeft nooit meer rechten dan de gebruiker.
+- **Alleen toegestane tools:** tools met een hogere `min_role` dan de gebruiker worden niet
+  aan het model aangeboden. Probeert het model toch een onbekende tool, dan wordt die
+  geweigerd en niet uitgevoerd.
+- **Bevestiging:** leesacties (GET) worden direct uitgevoerd; alle andere acties pas nadat
+  de gebruiker in het paneel op **Uitvoeren** klikt. Weigeren of een nieuw bericht sturen
+  annuleert de actie.
+- **Invoercontrole:** invoer wordt tegen het JSON-schema van de tool gecontroleerd.
+- **Prompt-injectie:** de systeemprompt behandelt inhoud uit toolresultaten als data, niet
+  als opdracht; wijzigende acties vereisen bovendien altijd bevestiging door de mens.
+- **Grenzen:** maximaal 8 model-stappen per beurt; conversaties 24 uur in Redis, alleen
+  terug te vinden door de gebruiker die ze begon.
+- **Auditlog:** elke uitgevoerde, mislukte of geweigerde actie komt als
+  `assistant.tool_call` / `assistant.tool_declined` in het auditlog van de klant, op naam
+  van de gebruiker met `actor_type = assistant`.
+
+**Gegevens naar de LLM-aanbieder:** berichten van de gebruiker en de resultaten van tools
+gaan naar de Anthropic API. Zet de assistent alleen aan als de klant daarmee akkoord is
+(verwerkersovereenkomst). Netwerk: alleen de assistent zit op het `egress`-netwerk; core,
+apps en databases kunnen niet naar internet.
+
+**Instellingen:** `ANTHROPIC_API_KEY`, `HUB_LLM_MODEL` (standaard `claude-opus-5-5`),
+`HUB_LLM_EFFORT` (standaard `medium`), `HUB_LLM_MAX_TOKENS`, `HUB_MAX_STEPS`,
+`HUB_REDIS_URL`, `HUB_CORE_URL`. Bij een weigering door de veiligheidsfilters van het model
+wordt automatisch een ander model gebruikt (server-side fallback); prompt-caching staat aan.

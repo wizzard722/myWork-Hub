@@ -86,6 +86,9 @@ def test_generator_creates_working_app(repo_copy):
     hub_apps = compose["services"]["core"]["environment"]["HUB_APPS"]
     assert hub_apps.endswith(",agenda-plus=http://app-agenda-plus:8000")
 
+    prod = yaml.safe_load((repo_copy / "docker-compose.prod.yml").read_text())
+    assert "mywork-hub-app-agenda-plus:" in prod["services"]["app-agenda-plus"]["image"]
+
     overlay = (repo_copy / "deploy/kubernetes/overlays/production/kustomization.yaml").read_text()
     assert "ghcr.io/wizzard722/mywork-hub-app-agenda-plus" in overlay
 

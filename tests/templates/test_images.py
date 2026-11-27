@@ -38,3 +38,26 @@ def test_kubernetes_overlay_lists_every_image():
         if img["name"] == "mywork-hub-proxy":
             continue  # in Kubernetes is de Ingress-controller de reverse proxy
         assert f"name: {img['name']}," in overlay, img["name"]
+
+
+def test_prod_compose_is_up_to_date():
+    import make_prod_compose
+
+    assert (ROOT / "docker-compose.prod.yml").read_text() == make_prod_compose.build(ROOT), (
+        "Voer uit: uv run python scripts/make_prod_compose.py"
+    )
+
+
+def test_prod_compose_has_all_images_and_no_builds():
+    prod = yaml.safe_load((ROOT / "docker-compose.prod.yml").read_text())
+    dev = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    assert set(prod["services"]) == set(dev["services"])
+    for name, service in prod["services"].items():
+        assert "build" not in service, name
+        assert service["image"], name
+    for img in images.discover():
+        assert any(img["name"] + ":" in s["image"] for s in prod["services"].values()), img["name"]
+    core_env = prod["services"]["core"]["environment"]
+    assert core_env["HUB_ENVIRONMENT"] == "production"
+    assert ":?" in core_env["HUB_JWT_PRIVATE_KEY"]
+    assert "change-me" not in (ROOT / "docker-compose.prod.yml").read_text()

@@ -1,0 +1,1 @@
+"""myWork-Hub assistent."""

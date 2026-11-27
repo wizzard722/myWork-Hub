@@ -11,7 +11,8 @@ Wat het doet (zie docs/apps.md):
 4. deploy/kubernetes/base/app-<id>.yaml aanmaken en opnemen in kustomization.yaml
 5. de image toevoegen aan de productie-overlay
 6. de app registreren in HUB_APPS (Docker Compose en Kubernetes)
-7. uv lock (tenzij --no-lock)
+7. docker-compose.prod.yml opnieuw genereren
+8. uv lock (tenzij --no-lock)
 """
 
 from __future__ import annotations
@@ -140,6 +141,11 @@ def create_app(root: Path, app_id: str, name: str, description: str) -> list[Pat
     add_workspace_member(root, app_id)
     add_compose_service(root, values)
     add_kubernetes(root, values)
+    # Productie-compose opnieuw genereren (zelfde map als dit script).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import make_prod_compose
+
+    make_prod_compose.write(root)
     return created
 
 

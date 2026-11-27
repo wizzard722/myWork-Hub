@@ -12,3 +12,20 @@ provides_permissions:
 publishes: []
 # Events waarop deze app reageert, bijv. files.file_uploaded
 subscribes: []
+# Handelingen die de assistent namens de gebruiker mag uitvoeren (zie docs/apps.md).
+# GET-tools voert de assistent direct uit; andere vragen eerst bevestiging.
+tools:
+  - name: list_items
+    description: Toon de items van __APP_NAME__ voor de organisatie van de gebruiker.
+    method: GET
+    path: /items
+  - name: add_item
+    description: Voeg een item toe aan __APP_NAME__. Alleen voor beheerders.
+    method: POST
+    path: /items
+    min_role: admin
+    input_schema:
+      type: object
+      properties:
+        title: { type: string, description: Titel van het item, minLength: 1 }
+      required: [title]

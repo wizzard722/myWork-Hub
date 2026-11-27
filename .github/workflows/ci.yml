@@ -59,7 +59,7 @@ jobs:
       - run: docker compose build
       - name: Images draaien zonder shell en apk, als niet-root
         run: |
-          for image in mywork-hub-core:dev mywork-hub-app-hello:dev mywork-hub-gateway:dev mywork-hub-web:dev mywork-hub-proxy:dev; do
+          for image in mywork-hub-core:dev mywork-hub-assistant:dev mywork-hub-app-hello:dev mywork-hub-gateway:dev mywork-hub-web:dev mywork-hub-proxy:dev; do
             user=$(docker image inspect --format '{{.Config.User}}' "$image")
             echo "$image -> user $user"
             test "$user" = "65532:65532"
@@ -87,6 +87,8 @@ jobs:
             -H 'Content-Type: application/json' \
             -d '{"email":"eigenaar@rooktest.nl","password":"rooktest-wachtwoord"}' | grep -q access_token
           curl -fsSk $R https://rooktest.localhost/api/core/theme | grep -q Rooktest
+          # Assistent draait (zonder API-sleutel: uitgeschakeld) en vereist inloggen
+          test "$(curl -s -o /dev/null -w '%{http_code}' -k https://localhost/api/assistant/status)" = "401"
       - name: Netwerkafscherming
         run: |
           ! docker compose exec -T core python -c "import urllib.request;urllib.request.urlopen('https://example.com',timeout=5)"

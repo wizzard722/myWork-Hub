@@ -100,20 +100,29 @@ async function parseError(response: Response): Promise<ApiError> {
 }
 
 async function send(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+  return sendTo(CORE, path, init, retry);
+}
+
+async function sendTo(
+  base: string,
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  const response = await fetch(`${CORE}${path}`, { ...init, headers, credentials: "same-origin" });
+  const response = await fetch(`${base}${path}`, { ...init, headers, credentials: "same-origin" });
   if (response.status === 401 && retry && accessToken) {
     const session = await refreshSession();
-    if (session) return send(path, init, false);
+    if (session) return sendTo(base, path, init, false);
   }
   return response;
 }
 
-async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await send(path, init);
+async function json<T>(path: string, init: RequestInit = {}, base = CORE): Promise<T> {
+  const response = await sendTo(base, path, init);
   if (!response.ok) throw await parseError(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -195,4 +204,40 @@ export const api = {
 
   saveTheme: (theme: Theme) => json<Theme>("/theme", { method: "PUT", body: body(theme) }),
   resetTheme: () => json<void>("/theme", { method: "DELETE" }),
+};
+
+// ---- Assistent ---------------------------------------------------------------------
+
+const ASSISTANT = "/api/assistant";
+
+export interface AssistantAction {
+  id: string;
+  app: string;
+  tool: string;
+  title: string;
+  input: Record<string, unknown>;
+  status: "executed" | "failed" | "declined" | "needs_confirmation" | "rejected";
+}
+
+export interface AssistantTurn {
+  conversation_id: string;
+  reply: string;
+  actions: AssistantAction[];
+  pending: AssistantAction[];
+}
+
+export const assistant = {
+  status: () => json<{ enabled: boolean; model: string | null }>("/status", {}, ASSISTANT),
+  chat: (message: string, conversationId?: string) =>
+    json<AssistantTurn>(
+      "/chat",
+      { method: "POST", body: body({ message, conversation_id: conversationId }) },
+      ASSISTANT,
+    ),
+  decide: (conversationId: string, decisions: Record<string, boolean>) =>
+    json<AssistantTurn>(
+      `/chat/${conversationId}/decisions`,
+      { method: "POST", body: body({ decisions }) },
+      ASSISTANT,
+    ),
 };

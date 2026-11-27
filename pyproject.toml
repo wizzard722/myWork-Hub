@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 
 [tool.uv.workspace]
-members = ["packages/sdk", "services/core", "apps/hello"]
+members = ["packages/sdk", "services/core", "services/assistant", "apps/hello"]
 
 [tool.uv.sources]
 mywork-sdk = { workspace = true }
@@ -24,10 +24,10 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "mywork_sdk.require_role", "mywork_sdk.auth.require_role"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/sdk/tests", "services/core/tests", "apps/hello/tests", "tests"]
+testpaths = ["packages/sdk/tests", "services/core/tests", "services/assistant/tests", "apps/hello/tests", "tests"]
 addopts = "--import-mode=importlib"
 # Hulpmodules van tests die met import gebruikt worden.
 pythonpath = ["services/core/tests"]

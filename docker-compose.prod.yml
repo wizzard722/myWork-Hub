@@ -1,0 +1,255 @@
+# GEGENEREERD door scripts/make_prod_compose.py uit docker-compose.yml — niet met de hand
+# wijzigen. Productie-opstelling met alle benodigde images (niets bouwen):
+#
+#   cp .env.example .env        # vul HUB_DOMAIN, HUB_VERSION, wachtwoorden en sleutel in
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Zie docs/containers.md en docs/security.md.
+
+name: mywork-hub
+services:
+  proxy:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    image: ${HUB_REGISTRY:-ghcr.io/wizzard722}/mywork-hub-proxy:${HUB_VERSION:?Zet HUB_VERSION, bijv. 0.1.0}
+    ports:
+    - 80:80
+    - 443:443
+    - 443:443/udp
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    environment:
+      HUB_DOMAIN: ${HUB_DOMAIN:?Zet HUB_DOMAIN in .env, bijv. hub.example.com}
+      HUB_TLS: ${HUB_TLS:-ondemand}
+      ACME_EMAIL: ${ACME_EMAIL:?Zet ACME_EMAIL in .env (voor Let's Encrypt)}
+    volumes:
+    - proxy-data:/data
+    - proxy-config:/config
+    networks:
+    - edge
+    - egress
+    depends_on:
+    - gateway
+    pull_policy: always
+  gateway:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    image: ${HUB_REGISTRY:-ghcr.io/wizzard722}/mywork-hub-gateway:${HUB_VERSION:?Zet HUB_VERSION, bijv. 0.1.0}
+    networks:
+    - edge
+    - internal
+    depends_on:
+    - core
+    - web
+    pull_policy: always
+  core:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    env_file:
+    - path: .env
+      required: false
+    healthcheck:
+      test:
+      - CMD
+      - /opt/venv/bin/python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    image: ${HUB_REGISTRY:-ghcr.io/wizzard722}/mywork-hub-core:${HUB_VERSION:?Zet HUB_VERSION, bijv. 0.1.0}
+    environment:
+      ROOT_PATH: /api/core
+      HUB_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mywork}:${POSTGRES_PASSWORD:?Zet POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-mywork}
+      HUB_REDIS_URL: redis://:${REDIS_PASSWORD:?Zet REDIS_PASSWORD in .env}@redis:6379/0
+      HUB_BASE_DOMAIN: ${HUB_DOMAIN:?Zet HUB_DOMAIN in .env, bijv. hub.example.com}
+      HUB_PUBLIC_URL: https://${HUB_DOMAIN:?Zet HUB_DOMAIN in .env, bijv. hub.example.com}
+      HUB_COOKIE_SECURE: 'true'
+      HUB_JWT_PRIVATE_KEY: ${HUB_JWT_PRIVATE_KEY:?Zet HUB_JWT_PRIVATE_KEY in .env (python -m core.cli generate-key)}
+      HUB_APPS: hello=http://app-hello:8000
+      HUB_ENVIRONMENT: production
+    networks:
+    - internal
+    - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    pull_policy: always
+  assistant:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    env_file:
+    - path: .env
+      required: false
+    healthcheck:
+      test:
+      - CMD
+      - /opt/venv/bin/python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    image: ${HUB_REGISTRY:-ghcr.io/wizzard722}/mywork-hub-assistant:${HUB_VERSION:?Zet HUB_VERSION, bijv. 0.1.0}
+    environment:
+      ROOT_PATH: /api/assistant
+      HUB_CORE_URL: http://core:8000
+      HUB_REDIS_URL: redis://:${REDIS_PASSWORD:?Zet REDIS_PASSWORD in .env}@redis:6379/1
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      HUB_LLM_MODEL: ${HUB_LLM_MODEL:-claude-opus-5-5}
+    networks:
+    - internal
+    - data
+    - egress
+    depends_on:
+      core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    pull_policy: always
+  web:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    image: ${HUB_REGISTRY:-ghcr.io/wizzard722}/mywork-hub-web:${HUB_VERSION:?Zet HUB_VERSION, bijv. 0.1.0}
+    networks:
+    - internal
+    pull_policy: always
+  postgres:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    - /var/run/postgresql
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    image: postgres:17-alpine
+    user: 70:70
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mywork}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Zet POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-mywork}
+    volumes:
+    - postgres-data:/var/lib/postgresql/data
+    networks:
+    - data
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - ${POSTGRES_USER:-mywork}
+      - -d
+      - ${POSTGRES_DB:-mywork}
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  redis:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    image: redis:7.4-alpine
+    user: 999:1000
+    command:
+    - redis-server
+    - --requirepass
+    - ${REDIS_PASSWORD:?Zet REDIS_PASSWORD in .env}
+    - --appendonly
+    - 'yes'
+    - --protected-mode
+    - 'yes'
+    volumes:
+    - redis-data:/data
+    networks:
+    - data
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - --no-auth-warning
+      - -a
+      - ${REDIS_PASSWORD:?Zet REDIS_PASSWORD in .env}
+      - ping
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  app-hello:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+    - /tmp
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    env_file:
+    - path: .env
+      required: false
+    healthcheck:
+      test:
+      - CMD
+      - /opt/venv/bin/python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    image: ${HUB_REGISTRY:-ghcr.io/wizzard722}/mywork-hub-app-hello:${HUB_VERSION:?Zet HUB_VERSION, bijv. 0.1.0}
+    environment:
+      ROOT_PATH: /api/apps/hello
+      APP_MANIFEST: /app/manifest.yaml
+      HUB_CORE_URL: http://core:8000
+    networks:
+    - internal
+    pull_policy: always
+networks:
+  edge: {}
+  internal:
+    internal: true
+  data:
+    internal: true
+  egress: {}
+volumes:
+  postgres-data: null
+  redis-data: null
+  proxy-data: null
+  proxy-config: null

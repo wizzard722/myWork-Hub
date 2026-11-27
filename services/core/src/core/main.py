@@ -26,8 +26,20 @@ from mywork_sdk import create_service
 log = logging.getLogger("core")
 
 
+def _configure_audit_logging() -> None:
+    """Auditregels als JSON naar stdout (voor een SIEM of logplatform)."""
+    audit_log = logging.getLogger("audit")
+    if not audit_log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        audit_log.addHandler(handler)
+        audit_log.setLevel(logging.INFO)
+        audit_log.propagate = False
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
+    _configure_audit_logging()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

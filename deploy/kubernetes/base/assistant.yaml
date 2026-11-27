@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assistant
+  labels:
+    app.kubernetes.io/name: assistant
+    app.kubernetes.io/component: assistant
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: assistant
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: assistant
+        app.kubernetes.io/component: assistant
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: assistant
+      containers:
+        - name: assistant
+          image: mywork-hub-assistant
+          ports:
+            - { name: http, containerPort: 8000 }
+          env:
+            - { name: ROOT_PATH, value: /api/assistant }
+            - { name: HUB_CORE_URL, value: http://core:8000 }
+
+          envFrom:
+            - configMapRef: { name: hub-config }
+            # HUB_REDIS_URL uit hub-secrets; ANTHROPIC_API_KEY uit hub-llm (zonder: assistent uit).
+            - secretRef: { name: hub-secrets }
+            - secretRef: { name: hub-llm, optional: true }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: assistant
+  labels:
+    app.kubernetes.io/name: assistant
+spec:
+  selector:
+    app.kubernetes.io/name: assistant
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: assistant
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: assistant }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: assistant
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: assistant

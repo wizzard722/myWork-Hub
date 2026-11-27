@@ -10,7 +10,8 @@ Documentatie:
 
 - [docs/architecture.md](docs/architecture.md) — architectuur, volledige mappenstructuur, tests, fasering
 - [docs/apps.md](docs/apps.md) — apps ontwikkelen met de template en generator
-- [docs/containers.md](docs/containers.md) — gehardende containers bouwen, scannen en publiceren
+- [docs/containers.md](docs/containers.md) — gehardende containers (Alpine), bouwen, productie-compose
+- [docs/security.md](docs/security.md) — reverse proxy, firewall, auditlog, LLM-assistent
 
 ## Structuur (kort)
 
@@ -37,12 +38,16 @@ docker compose exec core python -m core.cli create-tenant --slug acme --name "Ac
     --owner-email eigenaar@acme.nl --owner-name "Jan de Vries"
 ```
 
-Daarna:
+Daarna (HTTPS met een eigen certificaat van Caddy; de browser waarschuwt eenmalig):
 
-- http://acme.localhost:8080 — inloggen bij klant Acme (subdomein)
-- http://localhost:8080 — inloggen zonder subdomein (klant volgt uit het account)
-- http://localhost:8080/api/core/docs — API-documentatie van de core
-- http://localhost:8080/api/apps/hello/docs — API-documentatie van de voorbeeld-app
+- https://acme.localhost — inloggen bij klant Acme (subdomein)
+- https://localhost — inloggen zonder subdomein (klant volgt uit het account)
+- https://localhost/api/core/docs — API-documentatie van de core
+
+LLM-assistent aanzetten: zet `ANTHROPIC_API_KEY` in `.env`.
+
+**Productie** met kant-en-klare images: `docker-compose.prod.yml` (zie
+[docs/containers.md](docs/containers.md)).
 
 ## Draaien op Kubernetes
 

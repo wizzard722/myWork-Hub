@@ -9,3 +9,18 @@ publishes:
   - name: hello.greeted
     description: Er is iemand begroet.
 subscribes: []
+# Handelingen die de assistent namens de gebruiker mag uitvoeren (zie docs/apps.md).
+tools:
+  - name: greet
+    description: Maak een begroeting voor een persoon. Gebruik dit als iemand gegroet wil worden.
+    method: GET
+    path: /greetings/{name}
+    input_schema:
+      type: object
+      properties:
+        name: { type: string, description: Naam van de persoon, minLength: 1, maxLength: 100 }
+      required: [name]
+  - name: whoami
+    description: Laat zien als wie (gebruiker, organisatie en rol) de hello-app de gebruiker ziet.
+    method: GET
+    path: /whoami

@@ -26,6 +26,8 @@ def discover(root: Path = ROOT) -> list[dict]:
          "build_args": {}},
         {"name": "mywork-hub-core", "context": ".", "file": PYTHON_DOCKERFILE,
          "build_args": {"PACKAGE": "mywork-core", "MODULE": "core.main"}},
+        {"name": "mywork-hub-assistant", "context": ".", "file": PYTHON_DOCKERFILE,
+         "build_args": {"PACKAGE": "mywork-assistant", "MODULE": "assistant.main"}},
         {"name": "mywork-hub-web", "context": "web", "file": "web/Dockerfile", "build_args": {}},
         {"name": "mywork-hub-proxy", "context": "proxy", "file": "proxy/Dockerfile",
          "build_args": {}},

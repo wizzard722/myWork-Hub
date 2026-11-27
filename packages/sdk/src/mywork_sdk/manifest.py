@@ -1,6 +1,7 @@
 """Het app-manifest: hoe een app-service zichzelf bij de hub beschrijft."""
 
 from pathlib import Path
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,36 @@ class EventSpec(BaseModel):
 
     name: str = Field(pattern=EVENT_NAME_PATTERN)
     description: str = ""
+
+
+TOOL_NAME_PATTERN = r"^[a-z][a-z0-9_]{1,40}$"
+
+
+class ToolSpec(BaseModel):
+    """Een handeling die de assistent namens de gebruiker mag uitvoeren.
+
+    De assistent roept ``method path`` van de app aan met het token van de gebruiker;
+    de app controleert zelf de rechten. Padparameters (``{name}``) komen uit de invoer;
+    de rest gaat als query (GET/DELETE) of JSON-body (POST/PUT/PATCH).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=TOOL_NAME_PATTERN)
+    description: str = Field(min_length=10, max_length=1000)
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = "GET"
+    path: str = Field(pattern=r"^/[A-Za-z0-9_\-/{}.]*$")
+    input_schema: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object", "properties": {}}
+    )
+    # Minimale rol om de tool aan te bieden (de app controleert daarnaast zelf).
+    min_role: Literal["member", "admin", "owner"] = "member"
+    # Vraag de gebruiker om bevestiging vóór uitvoeren. Standaard: alles behalve GET.
+    confirm: bool | None = None
+
+    @property
+    def needs_confirmation(self) -> bool:
+        return self.confirm if self.confirm is not None else self.method != "GET"
 
 
 class AppManifest(BaseModel):
@@ -37,6 +68,8 @@ class AppManifest(BaseModel):
     provides_permissions: list[str] = Field(default_factory=list)
     publishes: list[EventSpec] = Field(default_factory=list)
     subscribes: list[str] = Field(default_factory=list)
+    # Handelingen die de LLM-assistent namens de gebruiker mag uitvoeren.
+    tools: list[ToolSpec] = Field(default_factory=list)
 
 
 def load_manifest(path: str | Path) -> AppManifest:

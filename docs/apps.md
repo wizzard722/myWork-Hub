@@ -14,7 +14,7 @@ met de core en met elkaar, nooit via elkaars database.
 1. [Snel starten: een app maken](#1-snel-starten-een-app-maken)
 2. [Wat de generator aanmaakt en aanpast](#2-wat-de-generator-aanmaakt-en-aanpast)
 3. [Opbouw van een app](#3-opbouw-van-een-app)
-4. [Manifest](#manifest)
+4. [Manifest](#manifest) (met tools voor de assistent)
 5. [De API van een app](#5-de-api-van-een-app)
 6. [Samenwerken met andere apps](#6-samenwerken-met-andere-apps)
 7. [Frontend en theming](#7-frontend-en-theming)
@@ -31,12 +31,12 @@ uv run python scripts/new_app.py --id agenda --name "Agenda" \
 uv sync --all-packages
 uv run pytest apps/agenda tests/
 docker compose up -d --build app-agenda core
-curl http://localhost:8080/api/apps/agenda/items
+curl -k https://localhost/api/apps/agenda/items -H "Authorization: Bearer <token>"
 ```
 
 De app werkt direct: `/health`, `/manifest`, een voorbeeld-endpoint `/items` en
-API-documentatie op `http://localhost:8080/api/apps/agenda/docs`. De core ziet de app
-op `http://localhost:8080/api/core/apps`.
+API-documentatie op `https://localhost/api/apps/agenda/docs`. De core ziet de app
+op `https://localhost/api/core/apps`.
 
 ### Regels voor de app-id
 
@@ -58,6 +58,7 @@ De Python-module krijgt de id met `_` in plaats van `-` (`agenda-plus` → `agen
 | 5 | `deploy/kubernetes/base/kustomization.yaml` | Nieuw bestand opgenomen |
 | 6 | `deploy/kubernetes/base/config.yaml` | App toegevoegd aan `HUB_APPS` |
 | 7 | `deploy/kubernetes/overlays/production/kustomization.yaml` | Image `ghcr.io/wizzard722/mywork-hub-app-<id>` |
+| 7b | `docker-compose.prod.yml` | Opnieuw gegenereerd (`scripts/make_prod_compose.py`) |
 | 8 | `uv.lock` | Bijgewerkt (`uv lock`; overslaan met `--no-lock`) |
 
 Niet nodig: de gateway (routeert automatisch `/api/apps/<id>/` naar `app-<id>`) en de
@@ -74,7 +75,7 @@ apps/<id>/
 │   ├── __init__.py
 │   └── main.py             FastAPI-app (via mywork_sdk.create_service)
 └── tests/
-    └── test_app.py         Tests van de app
+    └── test_app.py         Tests van de app (inloggen nagebootst met login_as)
 ```
 
 `main.py` maakt de app met de SDK:
@@ -115,6 +116,35 @@ subscribes:                      # events waarop deze app reageert
 | `publishes[].name` | `<app-id>.<gebeurtenis>` in kleine letters, bijv. `files.file_uploaded` |
 | `subscribes` | Namen van events van andere apps |
 
+### Tools voor de assistent
+
+Met `tools` geeft een app aan welke handelingen de LLM-assistent namens de gebruiker mag
+uitvoeren:
+
+```yaml
+tools:
+  - name: list_items                 # kleine letters, cijfers, _
+    description: Toon de items van de organisatie van de gebruiker.
+    method: GET                      # GET | POST | PUT | PATCH | DELETE
+    path: /items                     # {param} wordt uit de invoer ingevuld
+  - name: add_item
+    description: Voeg een item toe. Alleen voor beheerders.
+    method: POST
+    path: /items
+    min_role: admin                  # member (standaard) | admin | owner
+    confirm: true                    # standaard: true voor alles behalve GET
+    input_schema:                    # JSON-schema; wordt gecontroleerd vóór uitvoering
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+      required: [title]
+```
+
+- De assistent roept de tool aan met het **token van de gebruiker**; de app moet zelf de
+  rechten controleren (`current_user` / `require_role`, zie hieronder).
+- Overige invoer gaat als query-parameters (GET/DELETE) of JSON-body (overige).
+- Schrijf een duidelijke `description`: daarop kiest het model de tool.
+
 Het manifest wordt gevalideerd door `mywork_sdk.AppManifest`; onbekende velden of
 verkeerde namen geven een fout bij het starten. De core leest het manifest via
 `/manifest` en weigert een app waarvan de id niet klopt met de configuratie.
@@ -128,14 +158,30 @@ verkeerde namen geven een fout bij het starten. De core leest het manifest via
 - Versie in het manifest; breek de API niet zonder de versie te verhogen.
 - Geen status in de container bewaren (geen lokale bestanden of sessies): de app moet
   met meerdere kopieën naast elkaar kunnen draaien (Kubernetes schaalt automatisch).
+- **Inloggen in de app:** gebruik de SDK; die controleert het token met de publieke
+  sleutel van de core (`HUB_CORE_URL`/.well-known/jwks.json, met cache):
+
+  ```python
+  from mywork_sdk import HubUser, current_user, require_role
+
+
+  @app.get("/items")
+  def items(user: HubUser = Depends(current_user)): ...  # ingelogd
+
+
+  @app.post("/items")
+  def add(body: ItemIn, user: HubUser = Depends(require_role("admin"))): ...
+  ```
+
+  `HubUser` heeft `user_id`, `tenant_id`, `tenant_slug` en `role`. In tests:
+  `mywork_sdk.testing.login_as(app, fake_user("admin"))`.
 - **Inloggen en klant:** de web-schil stuurt het toegangstoken van de core mee
   (`Authorization: Bearer ...`). Het token bevat de gebruiker (`sub`), de klant
   (`tid`, `tslug`) en de rol (`role`) en is te controleren met de publieke sleutel op
   `/api/core/.well-known/jwks.json` (EdDSA, audience `mywork-hub`). Een app slaat
   klantdata altijd op met `tenant_id` en gebruikt Row-Level Security zoals de core
   (zie `docs/architecture.md`, sectie 5).
-- Fase 3 voegt aan de SDK een kant-en-klare afhankelijkheid toe die het token
-  controleert en de klantcontext zet, plus rechtencontrole op basis van `permissions`.
+- Fase 3 voegt rechtencontrole op basis van `permissions` toe en apps per klant aan/uit.
 
 ## 6. Samenwerken met andere apps
 

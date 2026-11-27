@@ -12,6 +12,7 @@ resources:
   - networkpolicies.yaml
   - gateway.yaml
   - core.yaml
+  - assistant.yaml
   - web.yaml
   - ingress.yaml
   # Apps (nieuwe apps worden hieronder toegevoegd door scripts/new_app.py)

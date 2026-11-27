@@ -12,6 +12,11 @@
 - **`docs/containers.md`** wordt bijgewerkt bij wijzigingen aan Dockerfiles,
   basisimages, `scripts/images.py` of de workflow `images.yml`.
 - Nieuwe apps altijd met `scripts/new_app.py`, nooit met de hand kopiëren.
+- `docker-compose.prod.yml` nooit met de hand wijzigen: `scripts/make_prod_compose.py`.
+- `docs/security.md` bijwerken bij wijzigingen aan proxy, gateway, netwerken, firewall,
+  auditlog of assistent. Elke nieuwe beheerhandeling schrijft een auditregel (core.audit).
+- De assistent voert nooit wijzigende acties uit zonder bevestiging van de gebruiker en
+  gebruikt altijd het token van de gebruiker.
 - Containers alleen op Alpine met vaste versie, gehardend (geen shell/apk), als uid 65532
   in de draaifase.
 - **Tests horen bij de code** en staan in de repository: nieuwe of gewijzigde code komt
