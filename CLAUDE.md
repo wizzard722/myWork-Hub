@@ -19,6 +19,9 @@
 - Apps zijn losse services; ze wisselen alleen gegevens uit via API's en events, nooit
   via elkaars database. De core is één service.
 - Theming komt alleen uit de core; frontends gebruiken uitsluitend `--mw-*`-variabelen.
+- Klantdata altijd met `tenant_id` en via `db.tenant_session(...)`; `system_session()`
+  alleen waar klantoverstijgend echt nodig is (inloggen, aanmelden, CLI).
+- De web-schil volgt ontwerp-variant B (app-dock bovenin).
 - Docker Compose en Kubernetes blijven gelijk: een service die in de een wordt
   toegevoegd, komt ook in de ander (bewaakt door `tests/deploy/`).
 

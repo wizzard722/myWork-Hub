@@ -13,6 +13,8 @@ Elke klant kan een eigen thema hebben (tabel ``tenant_themes``). Welk thema geld
 Heeft de klant geen eigen thema, dan geldt het standaardthema met de naam van de klant.
 """
 
+import hashlib
+
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -141,11 +143,14 @@ async def read_theme_css(
     request: Request, host_slug: HostSlugDep, tenant: str | None = TenantQuery
 ) -> Response:
     theme = await theme_for_slug(request, host_slug or tenant)
-    return Response(
-        content=render_css(theme),
-        media_type="text/css",
-        headers={"Cache-Control": "public, max-age=300", "Vary": "Host"},
-    )
+    css = render_css(theme)
+    # Altijd hervalideren (een gewijzigd thema is direct zichtbaar), maar met ETag
+    # zodat een ongewijzigd thema alleen een korte 304 kost.
+    etag = '"' + hashlib.sha256(css.encode()).hexdigest()[:32] + '"'
+    headers = {"Cache-Control": "no-cache", "ETag": etag, "Vary": "Host"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    return Response(content=css, media_type="text/css", headers=headers)
 
 
 @router.put("", response_model=Theme)

@@ -17,3 +17,18 @@ patches:
       - op: replace
         path: /spec/rules/0/host
         value: hub.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: "*.hub.example.com"
+  - target: { kind: ConfigMap, name: hub-config }
+    patch: |-
+      - op: replace
+        path: /data/HUB_BASE_DOMAIN
+        value: hub.example.com
+      - op: replace
+        path: /data/HUB_PUBLIC_URL
+        value: https://hub.example.com
+# Geheimen (niet in git): maak het Secret met
+#   kubectl -n mywork-hub create secret generic hub-secrets \
+#     --from-literal=HUB_DATABASE_URL='postgresql+asyncpg://...' \
+#     --from-file=HUB_JWT_PRIVATE_KEY=jwt-key.pem

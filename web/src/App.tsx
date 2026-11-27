@@ -1,52 +1,74 @@
 import { useEffect, useState } from "react";
-import { api, type AppStatus } from "./api";
-import { useTheme } from "./theme/ThemeProvider";
+import { api, type AppStatus, type Session } from "./api";
+import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { Shell } from "./components/Shell";
+import { useHashRoute } from "./components/useHashRoute";
+import { AdminNav } from "./pages/AdminNav";
+import { HomePage } from "./pages/HomePage";
+import { LoginPage } from "./pages/LoginPage";
+import { ThemePage } from "./pages/ThemePage";
+import { UsersPage } from "./pages/UsersPage";
+import { ThemeProvider } from "./theme/ThemeProvider";
 
-const statusLabel: Record<AppStatus["status"], string> = {
-  ok: "Beschikbaar",
-  unreachable: "Niet bereikbaar",
-  invalid: "Ongeldig manifest",
-};
-
-export function App() {
-  const theme = useTheme();
+function Hub({ session }: { session: Session }) {
+  const route = useHashRoute();
   const [apps, setApps] = useState<AppStatus[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [appsError, setAppsError] = useState<string | null>(null);
+  const isAdmin = session.user.role !== "member";
 
   useEffect(() => {
-    api.apps().then(setApps).catch((e: Error) => setError(e.message));
+    api
+      .apps()
+      .then(setApps)
+      .catch((e: Error) => setAppsError(e.message));
   }, []);
 
+  let page;
+  if (route.startsWith("/beheer") && isAdmin) {
+    page = (
+      <>
+        <AdminNav route={route} />
+        {route === "/beheer/thema" ? <ThemePage /> : <UsersPage session={session} />}
+      </>
+    );
+  } else if (route.startsWith("/apps/")) {
+    const app = apps?.find((a) => `/apps/${a.id}` === route);
+    page = (
+      <section className="section">
+        <h1>{app?.manifest?.name ?? "App"}</h1>
+        <p className="muted">
+          Het inladen van app-schermen in de hub volgt in fase 5. De API van deze app staat op{" "}
+          <a href={`/api/apps/${app?.id ?? ""}/docs`}>/api/apps/{app?.id}/docs</a>.
+        </p>
+      </section>
+    );
+  } else {
+    page = <HomePage session={session} apps={apps} appsError={appsError} />;
+  }
+
   return (
-    <div className="shell">
-      <header className="topbar">
-        {theme.logo_url ? (
-          <img className="logo" src={theme.logo_url} alt={theme.name} />
-        ) : (
-          <span className="brand">
-            <img className="mark" src="/logo-mark.svg" alt="" />
-            {theme.name}
-          </span>
-        )}
-      </header>
-      <main className="content">
-        <h1>Apps</h1>
-        {error && <p className="notice danger">Kan de core niet bereiken: {error}</p>}
-        {!apps && !error && <p className="muted">Laden…</p>}
-        {apps?.length === 0 && <p className="muted">Er zijn nog geen apps aangesloten.</p>}
-        <ul className="app-grid">
-          {apps?.map((app) => (
-            <li key={app.id} className="card">
-              <div className="card-head">
-                <strong>{app.manifest?.name ?? app.id}</strong>
-                <span className={`badge ${app.status}`}>{statusLabel[app.status]}</span>
-              </div>
-              <p className="muted">{app.manifest?.description ?? app.error}</p>
-              {app.manifest && <small className="muted">v{app.manifest.version}</small>}
-            </li>
-          ))}
-        </ul>
-      </main>
-    </div>
+    <Shell session={session} apps={apps ?? []} route={route}>
+      {page}
+    </Shell>
+  );
+}
+
+function Root() {
+  const { state } = useAuth();
+  const tenant = state.status === "authenticated" ? state.session.tenant.slug : undefined;
+  return (
+    <ThemeProvider tenant={tenant}>
+      {state.status === "loading" && <p className="loading muted">Laden…</p>}
+      {state.status === "anonymous" && <LoginPage />}
+      {state.status === "authenticated" && <Hub session={state.session} />}
+    </ThemeProvider>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <Root />
+    </AuthProvider>
   );
 }

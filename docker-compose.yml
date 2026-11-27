@@ -44,6 +44,15 @@ services:
     image: mywork-hub-core:dev
     environment:
       ROOT_PATH: /api/core
+      HUB_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mywork}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-mywork}
+      # Klanten via subdomein: http://<klant>.localhost:8080 (of zonder subdomein inloggen).
+      HUB_BASE_DOMAIN: ${HUB_BASE_DOMAIN:-localhost}
+      HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:-http://localhost:8080}
+      # Alleen voor http://localhost; zet op true achter https.
+      HUB_COOKIE_SECURE: ${HUB_COOKIE_SECURE:-false}
+      # Leeg = tijdelijke sleutel (alleen ontwikkeling). Maak er een met:
+      #   docker compose run --rm --entrypoint python core -m core.cli generate-key
+      HUB_JWT_PRIVATE_KEY: ${HUB_JWT_PRIVATE_KEY:-}
       # Apps die de core kent: <app-id>=http://app-<id>:8000 (bijgewerkt door scripts/new_app.py)
       HUB_APPS: hello=http://app-hello:8000
     depends_on: [postgres, redis]
@@ -53,7 +62,6 @@ services:
     build: ./web
     image: mywork-hub-web:dev
 
-  # Nog niet in gebruik in fase 1: klaar voor fase 2 (database) en fase 4 (events).
   postgres:
     image: cgr.dev/chainguard/postgres:latest
     environment:
@@ -64,6 +72,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  # Nog niet in gebruik: klaar voor fase 4 (events).
   redis:
     image: cgr.dev/chainguard/redis:latest
     volumes:

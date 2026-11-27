@@ -4,6 +4,11 @@ metadata:
   name: hub-config
 data:
   HUB_ENVIRONMENT: production
+  # Klanten via subdomein: <klant>.<HUB_BASE_DOMAIN>. Pas aan in de overlay.
+  HUB_BASE_DOMAIN: hub.example.com
+  HUB_PUBLIC_URL: https://hub.example.com
+  HUB_COOKIE_SECURE: "true"
+  HUB_ALLOW_SIGNUP: "false"
   # Apps die de core kent: <app-id>=http://app-<id>:8000 (bijgewerkt door scripts/new_app.py)
   HUB_APPS: hello=http://app-hello:8000
 ---

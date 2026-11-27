@@ -40,3 +40,11 @@ def test_render_custom_theme():
     css = render_css(Theme(radius="4px", light=ColorPalette(primary="#ff0000")))
     assert "--mw-color-primary: #ff0000;" in css
     assert "--mw-radius: 4px;" in css
+
+
+def test_theme_css_revalidates_with_etag():
+    first = client.get("/theme/theme.css")
+    assert first.headers["cache-control"] == "no-cache"
+    etag = first.headers["etag"]
+    second = client.get("/theme/theme.css", headers={"If-None-Match": etag})
+    assert second.status_code == 304

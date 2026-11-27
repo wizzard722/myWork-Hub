@@ -32,14 +32,16 @@ tests/              Deployment-, integratie- en templatetests
 ```bash
 cp .env.example .env
 docker compose up -d --build
+# Eerste klant met eigenaar (vraagt om een wachtwoord van minimaal 12 tekens)
+docker compose exec core python -m core.cli create-tenant --slug acme --name "Acme BV" \
+    --owner-email eigenaar@acme.nl --owner-name "Jan de Vries"
 ```
 
 Daarna:
 
-- http://localhost:8080 — de web-schil
+- http://acme.localhost:8080 — inloggen bij klant Acme (subdomein)
+- http://localhost:8080 — inloggen zonder subdomein (klant volgt uit het account)
 - http://localhost:8080/api/core/docs — API-documentatie van de core
-- http://localhost:8080/api/core/apps — status van de aangesloten apps
-- http://localhost:8080/api/core/theme/theme.css — het actieve thema
 - http://localhost:8080/api/apps/hello/docs — API-documentatie van de voorbeeld-app
 
 ## Draaien op Kubernetes
@@ -48,8 +50,9 @@ Daarna:
 kubectl apply -k deploy/kubernetes/overlays/production
 ```
 
-Pas in de overlay de namespace, image-tags en domeinnaam aan. PostgreSQL en Redis
-draaien in Kubernetes extern (managed dienst of operator).
+Pas in de overlay de namespace, image-tags en domeinnaam aan en maak het Secret
+`hub-secrets` met `HUB_DATABASE_URL` en `HUB_JWT_PRIVATE_KEY` (zie de overlay).
+PostgreSQL en Redis draaien in Kubernetes extern (managed dienst of operator).
 
 ## Ontwikkelen
 

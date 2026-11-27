@@ -2,8 +2,8 @@
 
 > **Levend document.** Bij elke wijziging aan de structuur, een service, een app, de
 > deployment of de tests wordt dit bestand in dezelfde commit bijgewerkt.
-> Laatst bijgewerkt: fase 1 (projectopzet, Kubernetes, tests, app-template,
-> gehardende containers, logo).
+> Laatst bijgewerkt: fase 2 (klanten, accounts, inloggen, rechten, Row-Level Security,
+> thema per klant, schil variant B).
 
 Documentatie:
 
@@ -121,27 +121,165 @@ Naamgeving die overal gelijk moet zijn (bewaakt door tests):
 
 Elke aanvraag en elk event draagt de klant (tenant) mee; de SDK zet die context klaar.
 
-## 5. Multi-tenancy
+## 5. Klanten, accounts en inloggen
 
-Eén PostgreSQL-cluster; elke service krijgt een eigen schema en database-gebruiker.
-Elke tabel met klantdata heeft een `tenant_id` met PostgreSQL Row-Level Security, zodat
-een fout in een app nooit data van een andere klant kan lekken. De klant wordt bepaald
-uit het subdomein (`klant.myworkhub.nl`) en vastgelegd in het token.
+### Klanten (tenants)
+
+- Elke klant heeft een **slug** die ook het subdomein is: `acme` → `acme.<HUB_BASE_DOMAIN>`
+  (in ontwikkeling `acme.localhost:8080`; browsers sturen `*.localhost` naar je eigen
+  computer).
+- **Welke klant?** Komt een aanvraag binnen op een subdomein, dan is dat de klant. Zonder
+  subdomein (basisdomein, `localhost`, IP-adres) volgt de klant uit het **account**
+  waarmee iemand inlogt.
+- Een e-mailadres is uniek over de hele hub: één account hoort bij precies één klant.
+- Gereserveerde subdomeinen (geen klant): `www`, `api`, `app`, `admin`, `auth`, `login`,
+  `static`, `assets`, `mail`, `status`, `hub`.
+- Klanten aanmaken: `python -m core.cli create-tenant` of, als `HUB_ALLOW_SIGNUP=true`,
+  zelf via `POST /api/core/signup`.
+
+### Inloggen
+
+```
+Browser                              Core
+  │ POST /auth/login (e-mail, wachtwoord)
+  │ ────────────────────────────────▶ Argon2id-controle, klant uit subdomein/account
+  │ ◀──────────────────────────────── toegangstoken (JWT, 15 min) in JSON
+  │                                   refresh-token in httpOnly-cookie (30 dagen)
+  │ GET /api/... met Authorization: Bearer <toegangstoken>
+  │ POST /auth/refresh (cookie + X-Hub-Request: 1)
+  │ ◀──────────────────────────────── nieuw toegangstoken, nieuw refresh-token
+```
+
+| Onderdeel | Keuze |
+| --- | --- |
+| Wachtwoorden | Argon2id, minimaal 12 tekens; bij onbekend e-mailadres even lang rekenen (geen timing-lek) |
+| Toegangstoken | JWT, EdDSA (Ed25519), 15 minuten, met `sub` (gebruiker), `tid`/`tslug` (klant), `role` |
+| Publieke sleutel | `GET /api/core/.well-known/jwks.json` — apps controleren tokens hiermee (fase 3) |
+| Refresh-token | Willekeurig, alleen de SHA-256-hash in de database; cookie `httpOnly`, `Secure`, `SameSite=Strict`, pad `/api/core/auth` |
+| Rotatie | Elk gebruik geeft een nieuw refresh-token; hergebruik van een oud token trekt de hele sessie in (diefstaldetectie) |
+| CSRF | Refresh en uitloggen vereisen de header `X-Hub-Request: 1` (naast `SameSite=Strict`) |
+| Klantbinding | Een token van klant A wordt geweigerd op het subdomein van klant B |
+| Intrekken | Wachtwoord wijzigen of account uitschakelen trekt alle sessies van die gebruiker in |
+
+Het toegangstoken staat in de web-schil alleen in het geheugen (niet in
+`localStorage`); na herladen haalt de schil een nieuw token op met de cookie.
+
+### Rollen
+
+| Rol | Mag |
+| --- | --- |
+| `owner` (eigenaar) | Alles, ook eigenaren toevoegen/wijzigen en de klantnaam aanpassen |
+| `admin` (beheerder) | Gebruikers (geen eigenaren) en het thema beheren |
+| `member` (gebruiker) | De hub en apps gebruiken, eigen naam en wachtwoord wijzigen |
+
+Er blijft altijd minimaal één actieve eigenaar; niemand kan zijn eigen rol wijzigen,
+zichzelf uitschakelen of verwijderen.
+
+### Afscherming tussen klanten (Row-Level Security)
+
+- Alle tabellen met klantdata hebben `tenant_id` en een RLS-policy, met
+  `FORCE ROW LEVEL SECURITY` (geldt ook voor de eigenaar van de tabellen).
+- Elke transactie van de core draait als de rol `mywork_rls` (geen superuser, geen
+  eigenaar) en zet één context:
+  - **klantcontext** (`app.tenant_id`): alleen rijen van die klant zichtbaar en
+    schrijfbaar;
+  - **systeemcontext** (`app.system = on`): klantoverstijgend, alleen voor inloggen,
+    aanmelden, thema opzoeken en de CLI.
+- Zonder context is niets zichtbaar. Een vergeten filter in de code lekt dus geen data.
+- Tests in `services/core/tests/test_users_and_tenancy.py` controleren dit rechtstreeks
+  in PostgreSQL.
+
+### Database en migraties
+
+- PostgreSQL via SQLAlchemy (async, asyncpg); schema in Alembic-migraties
+  (`services/core/src/core/migrations/`).
+- Bij het starten migreert de core automatisch (`HUB_AUTO_MIGRATE`), beveiligd met een
+  advisory lock: met meerdere replica's migreert er één tegelijk.
+- Zonder `HUB_DATABASE_URL` start de core zonder database: alleen standaardthema en
+  app-status, inloggen geeft 503.
+
+### Instellingen van de core
+
+| Variabele | Standaard | Betekenis |
+| --- | --- | --- |
+| `HUB_DATABASE_URL` | leeg | `postgresql+asyncpg://gebruiker:wachtwoord@host:5432/db` |
+| `HUB_BASE_DOMAIN` | `localhost` | Klanten op `<klant>.<basisdomein>` |
+| `HUB_PUBLIC_URL` | `http://localhost:8080` | Publiek adres; ook `iss` in tokens |
+| `HUB_JWT_PRIVATE_KEY` / `HUB_JWT_PRIVATE_KEY_FILE` | leeg | Ed25519-sleutel (PEM); **verplicht in productie** |
+| `HUB_ACCESS_TOKEN_MINUTES` | `15` | Geldigheid toegangstoken |
+| `HUB_REFRESH_TOKEN_DAYS` | `30` | Geldigheid refresh-sessie |
+| `HUB_COOKIE_SECURE` | `true` | Alleen `false` voor `http://localhost` |
+| `HUB_ALLOW_SIGNUP` | `false` | Zelf aanmelden van nieuwe klanten |
+| `HUB_AUTO_MIGRATE` | `true` | Migraties bij opstarten |
+| `HUB_ENVIRONMENT` | `development` | `production` maakt een JWT-sleutel verplicht |
+| `HUB_APPS` | leeg | Bekende apps: `id=url,...` |
+
+### Beheeropdrachten (CLI)
+
+```bash
+docker compose exec core python -m core.cli create-tenant --slug acme --name "Acme BV" \
+    --owner-email eigenaar@acme.nl --owner-name "Jan de Vries"      # vraagt wachtwoord
+docker compose exec core python -m core.cli migrate
+docker compose run --rm --entrypoint python core -m core.cli generate-key
+```
+
+### API van de core (fase 2)
+
+| Methode en pad | Wie | Doel |
+| --- | --- | --- |
+| `POST /auth/login`, `/auth/refresh`, `/auth/logout` | iedereen | Inloggen en sessies |
+| `GET`/`PATCH /me`, `POST /me/password` | ingelogd | Eigen account |
+| `GET /tenant/public` | iedereen | Klantnaam voor het inlogscherm |
+| `GET /tenant`, `PATCH /tenant` | ingelogd / eigenaar | Eigen klant |
+| `POST /signup` | iedereen (als aan) | Nieuwe klant met eigenaar |
+| `GET`/`POST /users`, `PATCH`/`DELETE /users/{id}` | beheerder | Gebruikersbeheer |
+| `GET /theme`, `GET /theme/theme.css` | iedereen | Thema (subdomein of `?tenant=`) |
+| `PUT`/`DELETE /theme` | beheerder | Thema opslaan of terugzetten |
+| `GET /.well-known/jwks.json` | iedereen | Publieke sleutel voor tokens |
+| `GET /apps` | iedereen | Status van apps (fase 3: per klant en met inloggen) |
+
+Volledige documentatie: `http://localhost:8080/api/core/docs`.
 
 ## 6. Theming
 
-De core is de enige bron van het thema:
+De core is de enige bron van het thema, **per klant**:
 
 - `GET /api/core/theme` — naam, logo, favicon en alle waarden als JSON.
 - `GET /api/core/theme/theme.css` — dezelfde waarden als CSS-variabelen
   (`--mw-color-primary`, `--mw-font-family`, `--mw-radius`, …), met licht en donker.
+- Welke klant: het subdomein, anders `?tenant=<klant>`, anders het standaardthema.
+  Heeft een klant geen eigen thema, dan geldt het standaardthema met de klantnaam.
+- `theme.css` wordt altijd hervalideerd (`Cache-Control: no-cache` met `ETag`): een
+  opgeslagen thema is direct zichtbaar, een ongewijzigd thema kost alleen een 304.
+- Beheerders wijzigen het thema in de web-schil (Beheer → Thema) of via `PUT /theme`.
 
 De web-schil en alle app-frontends laden `theme.css` en gebruiken **alleen** de
-`--mw-*`-variabelen, nooit vaste kleuren. Zo krijgt een klant met één thema de hele hub
-in zijn huisstijl. Kleuren worden alleen als hex-waarde geaccepteerd en lettertypen en
-maten worden gevalideerd, zodat klantinvoer geen eigen CSS kan injecteren.
-Fase 1 levert het standaardthema; vanaf fase 2 heeft elke klant een eigen thema in de
-database, te beheren via de core-API.
+`--mw-*`-variabelen, nooit vaste kleuren. Eigen vangnetwaarden definiëren frontends met
+`:where(:root)` (specificiteit 0), zodat het thema van de core altijd wint. Kleuren worden
+alleen als hex-waarde geaccepteerd; logo- en favicon-adressen alleen als `https://` of
+pad op dezelfde site; lettertypen en maten worden gevalideerd. Klantinvoer kan zo geen
+eigen CSS of scripts injecteren.
+
+## 6a. Web-schil (variant B)
+
+Gekozen ontwerp: **variant B — app-dock bovenin** (zie de mockups).
+
+- Inlogscherm met logo en naam van de klant (uit het subdomein).
+- Bovenbalk in de hoofdkleur met merk, dock (Start, de bereikbare apps, Beheer voor
+  beheerders) en account/uitloggen. Op een telefoon komt de dock op een eigen regel.
+- Start: begroeting, zoekveld (filtert apps) en app-tegels met status.
+- Beheer: gebruikers (toevoegen, rol, in-/uitschakelen, verwijderen) en thema
+  (naam, logo, kleuren).
+- Routering via de hash (`#/`, `#/beheer/gebruikers`, `#/beheer/thema`, `#/apps/<id>`).
+  App-schermen inladen volgt in fase 5.
+
+| Inloggen | Start | Start met eigen thema |
+| --- | --- | --- |
+| ![Inloggen](screenshots/inloggen.png) | ![Start](screenshots/start.png) | ![Eigen thema](screenshots/start-eigen-thema.png) |
+
+| Gebruikers | Thema | Telefoon |
+| --- | --- | --- |
+| ![Gebruikers](screenshots/gebruikers.png) | ![Thema](screenshots/thema.png) | ![Telefoon](screenshots/telefoon.png) |
 
 ## 7. Draaien: Docker en Kubernetes
 
@@ -158,7 +296,8 @@ bouwen en publiceren: [containers.md](containers.md).
 | Schalen | 1 container per service | HPA per service (CPU 70%), min. 2 replica's |
 | Beschikbaarheid | `restart: unless-stopped` | PodDisruptionBudget, rolling updates, spreiding over nodes |
 | PostgreSQL / Redis | Containers in de compose | Extern: managed dienst of operator (bijv. CloudNativePG) |
-| Instellingen | `.env` | ConfigMap `hub-config`, Secret `hub-secrets` |
+| Instellingen | `.env` | ConfigMap `hub-config`, Secret `hub-secrets` (verplicht: `HUB_DATABASE_URL`, `HUB_JWT_PRIVATE_KEY`) |
+| Subdomeinen | `http://<klant>.localhost:8080` | Ingress voor `hub.example.com` en `*.hub.example.com` (wildcard-certificaat nodig) |
 | DNS in gateway | `gateway/env.conf` (Docker-DNS, geen suffix) | ConfigMap `gateway-config` (kube-dns, suffix `.<namespace>.svc.cluster.local`) |
 
 Starten:
@@ -179,23 +318,25 @@ Alle tests staan in de repository en draaien in CI (`.github/workflows/ci.yml`).
 | Soort | Waar | Wat | Draaien |
 | --- | --- | --- | --- |
 | Unit — SDK | `packages/sdk/tests/` | Manifest-validatie, standaard-endpoints | `uv run pytest` |
-| Unit — core | `services/core/tests/` | Theming (ook CSS-injectie), app-register, config | `uv run pytest` |
+| Unit — core | `services/core/tests/test_theming.py`, `test_registry.py`, `test_security_units.py` | Theming (ook CSS-injectie, ETag), app-register, subdomeinen, wachtwoorden, tokens | `uv run pytest` |
+| Database — core | `services/core/tests/test_auth.py`, `test_users_and_tenancy.py` | Inloggen, sessies, rotatie, rollen, gebruikersbeheer, thema per klant, CLI, Row-Level Security in PostgreSQL (tijdelijke database; vereist PostgreSQL-programma's of `HUB_TEST_DATABASE_URL`) | `uv run pytest` |
 | Unit — apps | `apps/<id>/tests/` | API en manifest van de app | `uv run pytest` |
 | Deployment | `tests/deploy/` | Compose en Kubernetes gelijk, probes, limieten, non-root, HPA/PDB, naamgeving | `uv run pytest` |
 | Integratie | `tests/integration/test_services.py` | Core en app als echte processen die via HTTP praten | `uv run pytest` |
 | Integratie — gateway | `tests/integration/test_gateway.py` | Echte nginx-config van gateway en web: routering, SPA, headers (vereist `nginx` en `dnsmasq`) | `uv run pytest` |
 | Templates | `tests/templates/` | Generator maakt werkende app; `hello` gelijk aan templates; image-lijst compleet | `uv run pytest` |
-| Frontend | `web/src/__tests__/` | Web-schil: thema, app-lijst, foutmeldingen | `cd web && npm test` |
+| Frontend | `web/src/__tests__/` | Inloggen, sessie hervatten, uitloggen, dock en tegels, rollen, gebruikers- en themabeheer, CSS-volgorde | `cd web && npm test` |
 | Kubernetes-schema | CI-job `kubernetes` | Kustomize renderen + kubeconform | alleen CI |
 | Images | CI-job `docker` | uid 65532 en geen shell in elk image | alleen CI |
-| Rooktest | CI-job `docker` | Hele stack via gateway (`docker compose up`) | alleen CI |
+| Rooktest | CI-job `docker` | Hele stack via gateway (`docker compose up`), klant aanmaken via CLI, inloggen op subdomein | alleen CI |
 | Kwetsbaarheden | Workflow `Images` | Trivy-scan van elk image (HIGH/CRITICAL) | alleen CI |
 
 Regel: nieuwe code komt met tests in dezelfde commit.
 
 ## 9. Ontwerp (mockups)
 
-Twee varianten van de core hub staan op een ontwerpcanvas:
+**Gekozen: variant B** (gebouwd in fase 2, zie 6a). Beide varianten staan op een
+ontwerpcanvas:
 <https://claude.ai/artifact/WLLG5HGAevDZpNTHW5YfBG>
 
 - **Variant A — Zijbalk**: vaste navigatie links (apps en beheer), zoekbalk bovenaan,
@@ -239,6 +380,7 @@ mywork-hub/
 ├── branding/                          Logo's (SVG) en voorbeeld
 ├── docs/
 │   ├── architecture.md                Dit document
+│   ├── screenshots/                   Schermafbeeldingen van de web-schil
 │   ├── apps.md                        Handleiding apps ontwikkelen
 │   └── containers.md                  Gehardende containers, bouwen en publiceren
 ├── scripts/
@@ -257,11 +399,21 @@ mywork-hub/
 ├── services/
 │   └── core/                          Core-service
 │       ├── src/core/
-│       │   ├── main.py                FastAPI-app
+│       │   ├── main.py                App-fabriek: opstarten, database, migraties, sleutels
 │       │   ├── config.py              Instellingen (HUB_*)
-│       │   ├── theming.py             Thema als JSON en CSS
-│       │   └── registry.py            App-register en statuscontrole
-│       └── tests/
+│       │   ├── db.py                  Database met klant- en systeemcontext (RLS)
+│       │   ├── models.py              Tabellen: tenants, users, refresh_tokens, tenant_themes
+│       │   ├── migrations/            Alembic-migraties (schema en RLS-policies)
+│       │   ├── migrate.py             Migreren met advisory lock
+│       │   ├── security.py            Argon2id, JWT (Ed25519), JWKS, refresh-tokens
+│       │   ├── tenancy.py             Klant uit subdomein
+│       │   ├── accounts.py            Klanten, gebruikers, sessies (servicelaag)
+│       │   ├── deps.py                FastAPI-afhankelijkheden (ingelogde gebruiker, rollen)
+│       │   ├── routers/               API: auth, users, tenants, schemas
+│       │   ├── theming.py             Thema per klant als JSON en CSS
+│       │   ├── registry.py            App-register en statuscontrole
+│       │   └── cli.py                 Beheeropdrachten (create-tenant, migrate, generate-key)
+│       └── tests/                     Unit- en databasetests (conftest start PostgreSQL)
 ├── apps/
 │   └── hello/                         Voorbeeld-app als losse service
 │       ├── manifest.yaml
@@ -271,9 +423,12 @@ mywork-hub/
 │   ├── index.html                     Laadt favicon en theme.css uit de core
 │   ├── public/                        favicon.svg, logo-mark.svg
 │   ├── src/
-│   │   ├── main.tsx / App.tsx         Schil en app-overzicht
-│   │   ├── api.ts                     Aanroepen naar de core
-│   │   ├── theme/ThemeProvider.tsx    Thema-context (naam, logo, favicon)
+│   │   ├── main.tsx / App.tsx         Opstarten, routering, inloggen of hub
+│   │   ├── api.ts                     Aanroepen naar de core (token in geheugen, refresh)
+│   │   ├── auth/AuthProvider.tsx      Inlogstatus, sessie hervatten, uitloggen
+│   │   ├── theme/ThemeProvider.tsx    Thema van de klant (naam, logo, favicon, theme.css)
+│   │   ├── components/                Shell (variant B), Icon, hash-routering
+│   │   ├── pages/                     Inloggen, Start, Gebruikers, Thema
 │   │   ├── styles.css                 Alleen --mw-*-variabelen
 │   │   └── __tests__/                 Frontend-tests (Vitest)
 │   ├── nginx.conf / Dockerfile        Chainguard nginx, poort 8080, uid 65532
@@ -299,8 +454,9 @@ mywork-hub/
 
 1. **Projectopzet** ✅ — monorepo, SDK, core, voorbeeld-app, gateway, web-schil, Docker,
    Kubernetes, tests, CI, mockups, app-template en generator, gehardende containers, logo.
-2. Klanten, gebruikers, inloggen, rechten, Row-Level Security, thema per klant.
+2. **Klanten en accounts** ✅ — klanten (subdomein of account), eigen accounts,
+   inloggen met sessies, rollen, gebruikersbeheer, Row-Level Security, thema per klant,
+   web-schil variant B met inlogscherm en beheer.
 3. App-register in de database, apps per klant aan/uit, service-tokens.
 4. Events tussen apps via Redis Streams; twee voorbeeld-apps die data uitwisselen.
-5. Web-schil volgens gekozen mockup: inloggen, app-menu, ingeladen app-schermen,
-   thema-beheer.
+5. App-schermen in de web-schil inladen (de schil zelf, variant B, staat er sinds fase 2).

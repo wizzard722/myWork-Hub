@@ -43,7 +43,8 @@ spec:
 
           envFrom:
             - configMapRef: { name: hub-config }
-            - secretRef: { name: hub-secrets, optional: true }
+            # Verplicht: HUB_DATABASE_URL en HUB_JWT_PRIVATE_KEY (zie docs/architecture.md).
+            - secretRef: { name: hub-secrets }
           readinessProbe:
             httpGet: { path: /health, port: http }
             periodSeconds: 10

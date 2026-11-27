@@ -12,10 +12,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - name: nginx en dnsmasq voor de gateway-integratietest
+      - name: nginx, dnsmasq en PostgreSQL voor de integratie- en databasetests
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q nginx dnsmasq-base
+          sudo apt-get install -y -q nginx dnsmasq-base postgresql
           sudo systemctl stop nginx || true
       - run: uv sync --all-packages --frozen
       - run: uv run ruff check .
@@ -75,5 +75,13 @@ jobs:
           curl -fsS http://localhost:8080/api/core/apps | grep -q '"status":"ok"'
           curl -fsS http://localhost:8080/api/apps/hello/greetings/CI | grep -q 'Hallo CI'
           curl -fsS http://localhost:8080/ | grep -q 'theme.css'
+          # Klant aanmaken (container zonder shell: python direct) en inloggen
+          docker compose exec -T -e HUB_OWNER_PASSWORD=rooktest-wachtwoord core \
+            python -m core.cli create-tenant --slug rooktest --name "Rooktest" \
+            --owner-email eigenaar@rooktest.nl --owner-name "Eigenaar"
+          curl -fsS -X POST http://localhost:8080/api/core/auth/login \
+            -H 'Content-Type: application/json' -H 'Host: rooktest.localhost:8080' \
+            -d '{"email":"eigenaar@rooktest.nl","password":"rooktest-wachtwoord"}' | grep -q access_token
+          curl -fsS http://localhost:8080/api/core/theme -H 'Host: rooktest.localhost:8080' | grep -q Rooktest
       - if: failure()
         run: docker compose logs

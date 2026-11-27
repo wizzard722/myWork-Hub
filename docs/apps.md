@@ -128,8 +128,14 @@ verkeerde namen geven een fout bij het starten. De core leest het manifest via
 - Versie in het manifest; breek de API niet zonder de versie te verhogen.
 - Geen status in de container bewaren (geen lokale bestanden of sessies): de app moet
   met meerdere kopieën naast elkaar kunnen draaien (Kubernetes schaalt automatisch).
-- Fase 2 en 3 voegen toe: inloggen en klantcontext via de SDK (de klant zit in het
-  token) en rechtencontrole op basis van `permissions`.
+- **Inloggen en klant:** de web-schil stuurt het toegangstoken van de core mee
+  (`Authorization: Bearer ...`). Het token bevat de gebruiker (`sub`), de klant
+  (`tid`, `tslug`) en de rol (`role`) en is te controleren met de publieke sleutel op
+  `/api/core/.well-known/jwks.json` (EdDSA, audience `mywork-hub`). Een app slaat
+  klantdata altijd op met `tenant_id` en gebruikt Row-Level Security zoals de core
+  (zie `docs/architecture.md`, sectie 5).
+- Fase 3 voegt aan de SDK een kant-en-klare afhankelijkheid toe die het token
+  controleert en de klantcontext zet, plus rechtencontrole op basis van `permissions`.
 
 ## 6. Samenwerken met andere apps
 
@@ -143,9 +149,11 @@ verkeerde namen geven een fout bij het starten. De core leest het manifest via
 
 Het thema komt altijd uit de core. Een app-frontend:
 
-- laadt `/api/core/theme/theme.css`;
+- laadt `/api/core/theme/theme.css` (zonder subdomein: `?tenant=<klant>` uit het token);
 - gebruikt alleen de CSS-variabelen `--mw-*` (bijv. `var(--mw-color-primary)`,
   `var(--mw-radius)`, `var(--mw-font-family)`), nooit vaste kleuren;
+- definieert eigen vangnetwaarden alleen met `:where(:root) { --mw-...: ... }`
+  (specificiteit 0), zodat het thema van de klant altijd wint;
 - werkt in licht en donker (de variabelen wisselen automatisch).
 
 Hoe app-schermen in de web-schil worden ingeladen, volgt in fase 5.

@@ -1,17 +1,36 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, type Theme } from "../api";
 
-const fallback: Theme = { name: "myWork-Hub", logo_url: null, favicon_url: null };
-const ThemeContext = createContext<Theme>(fallback);
+const fallback: Theme = { name: "myWork-Hub", logo_url: null, favicon_url: "/favicon.svg" };
 
-/** Haalt naam, logo en favicon van het thema op bij de core.
- *  Kleuren, lettertype en afronding komen als CSS-variabelen uit theme.css. */
-export function ThemeProvider({ children }: { children: ReactNode }) {
+interface ThemeContextValue {
+  theme: Theme;
+  /** Opnieuw laden, bijv. na inloggen (klant bekend) of na opslaan van het thema. */
+  reload: () => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue>({ theme: fallback, reload: () => {} });
+
+/** Haalt het thema van de klant op bij de core.
+ *  Zonder subdomein wordt na inloggen de klant meegegeven via ?tenant=. */
+export function ThemeProvider({ tenant, children }: { tenant?: string; children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(fallback);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    api.theme().then(setTheme).catch(() => setTheme(fallback));
-  }, []);
+    api
+      .theme(tenant)
+      .then(setTheme)
+      .catch(() => setTheme(fallback));
+    const link = document.querySelector<HTMLLinkElement>("link[data-theme-css]");
+    if (link) {
+      const query = new URLSearchParams();
+      if (tenant) query.set("tenant", tenant);
+      if (version) query.set("v", String(version));
+      const qs = query.toString();
+      link.href = `/api/core/theme/theme.css${qs ? `?${qs}` : ""}`;
+    }
+  }, [tenant, version]);
 
   useEffect(() => {
     document.title = theme.name;
@@ -26,7 +45,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [theme]);
 
-  return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>;
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
+  return <ThemeContext.Provider value={{ theme, reload }}>{children}</ThemeContext.Provider>;
 }
 
-export const useTheme = () => useContext(ThemeContext);
+export const useTheme = () => useContext(ThemeContext).theme;
+export const useThemeReload = () => useContext(ThemeContext).reload;

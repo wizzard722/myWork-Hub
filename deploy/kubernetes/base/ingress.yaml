@@ -1,4 +1,6 @@
 # Eén publieke ingang: alles gaat naar de gateway, die verder routeert.
+# Klanten gebruiken een subdomein (<klant>.hub.example.com); het basisdomein zelf
+# werkt ook (klant volgt dan uit het account). TLS: zie de overlay.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -9,6 +11,15 @@ spec:
   ingressClassName: nginx
   rules:
     - host: hub.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port: { name: http }
+    - host: "*.hub.example.com"
       http:
         paths:
           - path: /
