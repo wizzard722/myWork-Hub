@@ -244,3 +244,20 @@ def test_cli_create_tenant(client, database_url, monkeypatch, capsys):
         load_settings.cache_clear()
     assert "aangemaakt" in capsys.readouterr().out
     assert login_as(client, "baas@cli.nl")["tenant"]["slug"] == "cli-klant"
+
+
+def test_cli_operator_without_username(monkeypatch):
+    import getpass
+
+    from core import cli
+
+    monkeypatch.delenv("HUB_OPERATOR", raising=False)
+    monkeypatch.delenv("USER", raising=False)
+
+    def no_user():
+        raise OSError("No username set in the environment")
+
+    monkeypatch.setattr(getpass, "getuser", no_user)
+    assert cli._operator().startswith("uid-")
+    monkeypatch.setenv("HUB_OPERATOR", "jan")
+    assert cli._operator() == "jan"

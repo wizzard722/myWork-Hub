@@ -12,7 +12,7 @@ Alle images van myWork-Hub zijn gebouwd op **Alpine Linux** met vaste versies:
 | `mywork-hub-core`, `mywork-hub-assistant`, `mywork-hub-app-<id>` | `python:3.13-alpine3.22` | `python:3.13-alpine3.22`, gehardend |
 | `mywork-hub-web` | `node:22-alpine3.22` | `nginx:1.28-alpine`, gehardend |
 | `mywork-hub-gateway` | — | `nginx:1.28-alpine`, gehardend |
-| `mywork-hub-proxy` | — | `caddy:2.10-alpine`, gehardend |
+| `mywork-hub-proxy` | `golang:1.27-alpine` (Caddy v2.11.9 zelf gebouwd met actuele Go en bijgewerkte Go-bibliotheken) | `alpine:3.22`, gehardend |
 | PostgreSQL, Redis (onderdeel van de hub) | — | `postgres:17-alpine`, `redis:7.4-alpine` (officieel, niet-root) |
 
 Waarom Alpine: klein, breed beschikbaar (Docker Hub), vaste versies en digests mogelijk,
@@ -57,7 +57,7 @@ docker build -f docker/python-service.Dockerfile \
 | `docker/python-service.Dockerfile` | `PYTHON_IMAGE`, `PACKAGE`, `MODULE`, `APP_DIR`, `APK_UPGRADE` |
 | `web/Dockerfile` | `NODE_BUILD_IMAGE`, `NGINX_IMAGE`, `APK_UPGRADE` |
 | `gateway/Dockerfile` | `NGINX_IMAGE`, `APK_UPGRADE` |
-| `proxy/Dockerfile` | `CADDY_IMAGE`, `APK_UPGRADE` |
+| `proxy/Dockerfile` | `GO_IMAGE`, `ALPINE_IMAGE`, `CADDY_VERSION`, `APK_UPGRADE` |
 
 ### Bouwen achter een proxy met eigen CA
 
@@ -112,8 +112,9 @@ Workflow `.github/workflows/images.yml`:
 | Push naar `main` | ✅ | ✅ | tags `main`, `sha-<commit>` |
 | Tag `v1.2.3` | ✅ | ✅ | tags `1.2.3`, `1.2`, `latest` |
 
-- **Trivy** (als container `aquasec/trivy`) laat de build falen bij kwetsbaarheden met ernst HIGH of CRITICAL waarvoor
+- **Trivy** (als container `aquasec/trivy`, alleen kwetsbaarheden) laat de build falen bij kwetsbaarheden met ernst HIGH of CRITICAL waarvoor
   een oplossing bestaat.
+- Een aparte job zoekt met Trivy naar **gelekte geheimen** in onze eigen broncode.
 - Gepubliceerde images krijgen een **SBOM** (lijst van alle onderdelen) en
   **herkomstgegevens** (provenance), zodat na te gaan is waaruit en hoe ze gebouwd zijn.
 

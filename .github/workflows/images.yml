@@ -28,6 +28,18 @@ jobs:
       - id: list
         run: echo "images=$(python scripts/images.py list)" >> "$GITHUB_OUTPUT"
 
+  # Geheimen (sleutels, wachtwoorden) zoeken in onze eigen broncode. In images scannen
+  # we alleen op kwetsbaarheden: de secret-scanner geeft daar valse meldingen op
+  # voorbeelden in bibliotheken van derden.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Geheimen in de repository (Trivy)
+        run: >
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.58.1 fs --scanners secret
+          --exit-code 1 --no-progress --skip-dirs /repo/web/node_modules /repo
+
   build:
     needs: discover
     runs-on: ubuntu-latest
@@ -58,7 +70,7 @@ jobs:
       - name: Kwetsbaarheden scannen (Trivy)
         run: >
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
-          aquasec/trivy:0.58.1 image --severity CRITICAL,HIGH --ignore-unfixed
+          aquasec/trivy:0.58.1 image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed
           --exit-code 1 --no-progress ${{ matrix.image.name }}:scan
 
       - name: Inloggen bij GHCR

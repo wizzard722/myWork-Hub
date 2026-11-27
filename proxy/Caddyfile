@@ -49,9 +49,7 @@
 		-Server
 		-Via
 	}
-	reverse_proxy gateway:8080 {
-		header_up X-Forwarded-Proto {scheme}
-	}
+	reverse_proxy gateway:8080
 	log {
 		output stdout
 		format json

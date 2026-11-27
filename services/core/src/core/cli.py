@@ -25,6 +25,18 @@ from core.migrate import migrate
 from core.security import generate_private_key_pem
 
 
+def _operator() -> str:
+    """Wie de opdracht geeft (voor het auditlog). In de container heeft uid 65532 geen
+    naam; zet dan HUB_OPERATOR, bijv. docker compose exec -e HUB_OPERATOR=jan core ..."""
+    name = os.environ.get("HUB_OPERATOR") or os.environ.get("USER")
+    if name:
+        return name
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError):
+        return f"uid-{os.getuid()}"
+
+
 async def _with_db(func):
     settings = load_settings()
     if not settings.database_url:
@@ -68,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             owner_email=args.owner_email,
             owner_password=password,
             owner_name=args.owner_name,
-            actor=Actor.system(f"cli:{getpass.getuser()}"),
+            actor=Actor.system(f"cli:{_operator()}"),
             info=RequestInfo(user_agent="core.cli"),
         )
 
