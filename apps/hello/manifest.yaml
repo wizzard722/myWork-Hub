@@ -1,0 +1,11 @@
+id: hello
+name: Hello
+version: 0.1.0
+description: Voorbeeld-app die laat zien hoe een app op de hub aansluit.
+permissions: []
+provides_permissions:
+  - hello:greetings.read
+publishes:
+  - name: hello.greeted
+    description: Er is iemand begroet.
+subscribes: []

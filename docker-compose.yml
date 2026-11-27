@@ -1,0 +1,83 @@
+name: mywork-hub
+
+x-python-service: &python-service
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    interval: 15s
+    timeout: 3s
+    retries: 3
+
+services:
+  gateway:
+    image: nginx:1.27-alpine
+    ports: ["8080:8080"]
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [core, web]
+    restart: unless-stopped
+
+  core:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE: mywork-core
+        MODULE: core.main
+    environment:
+      ROOT_PATH: /api/core
+      HUB_APPS: ${HUB_APPS:-hello=http://app-hello:8000}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # Elke app is een eigen service met de naam app-<id>.
+  app-hello:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE: mywork-app-hello
+        MODULE: hello.main
+        APP_DIR: apps/hello
+    environment:
+      ROOT_PATH: /api/apps/hello
+      APP_MANIFEST: /app/manifest.yaml
+
+  web:
+    build: ./web
+    restart: unless-stopped
+
+  # Nog niet in gebruik in fase 1: klaar voor fase 2 (database) en fase 4 (events).
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mywork}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-mywork}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,69 @@
+/* Gebruik uitsluitend de --mw-* variabelen uit het core-thema.
+   De waarden hieronder zijn alleen een vangnet als theme.css niet laadt. */
+:root {
+  --mw-font-family: system-ui, sans-serif;
+  --mw-radius: 8px;
+  --mw-color-primary: #0b5fff;
+  --mw-color-primary-contrast: #ffffff;
+  --mw-color-background: #f5f7fa;
+  --mw-color-surface: #ffffff;
+  --mw-color-text: #1b1f24;
+  --mw-color-text-muted: #5b6470;
+  --mw-color-border: #d9dee5;
+  --mw-color-success: #1a7f37;
+  --mw-color-warning: #9a6700;
+  --mw-color-danger: #cf222e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--mw-font-family);
+  background: var(--mw-color-background);
+  color: var(--mw-color-text);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--mw-color-primary);
+  color: var(--mw-color-primary-contrast);
+}
+.brand { font-weight: 600; font-size: 1.1rem; }
+.logo { height: 32px; }
+
+.content { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 1.4rem; margin: 0 0 16px; }
+.muted { color: var(--mw-color-text-muted); }
+
+.app-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.card {
+  background: var(--mw-color-surface);
+  border: 1px solid var(--mw-color-border);
+  border-radius: var(--mw-radius);
+  padding: 16px;
+}
+.card p { margin: 8px 0; }
+.card-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+
+.badge {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.badge.ok { color: var(--mw-color-success); }
+.badge.unreachable { color: var(--mw-color-warning); }
+.badge.invalid { color: var(--mw-color-danger); }
+
+.notice.danger { color: var(--mw-color-danger); }
