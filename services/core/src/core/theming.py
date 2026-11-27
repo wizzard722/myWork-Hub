@@ -4,18 +4,29 @@ De core is de enige bron van het thema. De web-schil en alle app-frontends halen
 thema op bij de core en gebruiken uitsluitend de CSS-variabelen (``--mw-*``), zodat
 een klant met één thema de hele hub van een eigen huisstijl voorziet.
 
-Fase 1 levert het standaardthema. Vanaf fase 2 krijgt elke klant (tenant) een eigen
-thema dat in de database wordt opgeslagen en hier wordt opgezocht.
+Elke klant kan een eigen thema hebben (tabel ``tenant_themes``). Welk thema geldt:
+
+1. de klant uit het subdomein (``acme.myworkhub.nl``), anders
+2. ``?tenant=<klant>`` (voor de web-schil na inloggen zonder subdomein), anders
+3. het standaardthema.
+
+Heeft de klant geen eigen thema, dan geldt het standaardthema met de naam van de klant.
 """
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+
+from core.deps import AdminDep, HostSlugDep
+from core.models import Tenant, TenantTheme
 
 # Alleen hex-kleuren: voorkomt dat klantinvoer willekeurige CSS in de stylesheet zet.
 HEX_COLOR = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
 # Lettertype-namen: letters, cijfers, spaties, komma's, koppeltekens en aanhalingstekens.
 FONT_STACK = r"^[A-Za-z0-9 ,\-\"']{1,200}$"
 CSS_LENGTH = r"^\d{1,3}(?:\.\d{1,2})?(?:px|rem)$"
+# Logo en favicon: https-adres of pad op dezelfde site, zonder spaties of quotes.
+ASSET_URL = r"^(?:https://[^\s\"'<>()]{1,500}|/[^\s\"'<>()]{0,500})$"
 
 
 def _color(default: str) -> str:
@@ -55,8 +66,8 @@ class Theme(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(default="myWork-Hub", max_length=80)
-    logo_url: str | None = None
-    favicon_url: str | None = "/favicon.svg"
+    logo_url: str | None = Field(default=None, pattern=ASSET_URL)
+    favicon_url: str | None = Field(default="/favicon.svg", pattern=ASSET_URL)
     font_family: str = Field(
         default='Inter, "Segoe UI", system-ui, -apple-system, sans-serif', pattern=FONT_STACK
     )
@@ -93,23 +104,73 @@ def render_css(theme: Theme) -> str:
     )
 
 
-def get_theme() -> Theme:
-    # Fase 2: thema van de huidige klant opzoeken.
-    return DEFAULT_THEME
+async def theme_for_slug(request, slug: str | None) -> Theme:
+    """Thema van een klant, of het standaardthema."""
+    db = getattr(request.app.state, "db", None)
+    if db is None or not slug:
+        return DEFAULT_THEME
+    async with db.system_session() as session:
+        row = (
+            await session.execute(
+                select(Tenant, TenantTheme)
+                .outerjoin(TenantTheme, TenantTheme.tenant_id == Tenant.id)
+                .where(Tenant.slug == slug, Tenant.status == "active")
+            )
+        ).first()
+    if row is None:
+        return DEFAULT_THEME
+    tenant, stored = row
+    if stored is None:
+        return DEFAULT_THEME.model_copy(update={"name": tenant.name})
+    return Theme.model_validate(stored.theme)
 
 
 router = APIRouter(prefix="/theme", tags=["theming"])
+TenantQuery = Query(default=None, max_length=40, description="Klant, als er geen subdomein is")
 
 
 @router.get("", response_model=Theme)
-def read_theme() -> Theme:
-    return get_theme()
+async def read_theme(
+    request: Request, host_slug: HostSlugDep, tenant: str | None = TenantQuery
+) -> Theme:
+    return await theme_for_slug(request, host_slug or tenant)
 
 
 @router.get("/theme.css", response_class=Response)
-def read_theme_css() -> Response:
+async def read_theme_css(
+    request: Request, host_slug: HostSlugDep, tenant: str | None = TenantQuery
+) -> Response:
+    theme = await theme_for_slug(request, host_slug or tenant)
     return Response(
-        content=render_css(get_theme()),
+        content=render_css(theme),
         media_type="text/css",
-        headers={"Cache-Control": "public, max-age=300"},
+        headers={"Cache-Control": "public, max-age=300", "Vary": "Host"},
     )
+
+
+@router.put("", response_model=Theme)
+async def save_theme(theme: Theme, request: Request, principal: AdminDep) -> Theme:
+    """Thema van de eigen klant opslaan (beheerders)."""
+    db = getattr(request.app.state, "db", None)
+    if db is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Geen database geconfigureerd")
+    async with db.tenant_session(principal.tenant_id) as session:
+        stored = await session.get(TenantTheme, principal.tenant_id)
+        if stored is None:
+            session.add(TenantTheme(tenant_id=principal.tenant_id, theme=theme.model_dump()))
+        else:
+            stored.theme = theme.model_dump()
+    return theme
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_theme(request: Request, principal: AdminDep) -> Response:
+    """Terug naar het standaardthema (beheerders)."""
+    db = getattr(request.app.state, "db", None)
+    if db is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Geen database geconfigureerd")
+    async with db.tenant_session(principal.tenant_id) as session:
+        stored = await session.get(TenantTheme, principal.tenant_id)
+        if stored is not None:
+            await session.delete(stored)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

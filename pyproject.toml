@@ -29,3 +29,5 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 [tool.pytest.ini_options]
 testpaths = ["packages/sdk/tests", "services/core/tests", "apps/hello/tests", "tests"]
 addopts = "--import-mode=importlib"
+# Hulpmodules van tests die met import gebruikt worden.
+pythonpath = ["services/core/tests"]
