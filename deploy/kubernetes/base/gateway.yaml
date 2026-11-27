@@ -23,8 +23,8 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 101
-        runAsGroup: 101
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile: { type: RuntimeDefault }
       topologySpreadConstraints:
         - maxSkew: 1
@@ -38,8 +38,6 @@ spec:
           image: mywork-hub-gateway
           ports:
             - { name: http, containerPort: 8080 }
-          envFrom:
-            - configMapRef: { name: gateway-config }
           readinessProbe:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 10
@@ -52,7 +50,15 @@ spec:
             limits: { memory: 128Mi }
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: env, mountPath: /etc/nginx/hub/env.conf, subPath: env.conf, readOnly: true }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - name: env
+          configMap: { name: gateway-config }
 ---
 apiVersion: v1
 kind: Service

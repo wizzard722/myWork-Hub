@@ -1,0 +1,14 @@
+# Manifest van de app. Uitleg per veld: docs/apps.md#manifest
+id: __APP_ID__
+name: __APP_NAME__
+version: 0.1.0
+description: __APP_DESCRIPTION__
+# Rechten die deze app gebruikt (van de core of andere apps), bijv. core:users.read
+permissions: []
+# Rechten die deze app aanbiedt aan andere apps
+provides_permissions:
+  - __APP_ID__:items.read
+# Events die deze app verstuurt
+publishes: []
+# Events waarop deze app reageert, bijv. files.file_uploaded
+subscribes: []

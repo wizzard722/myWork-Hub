@@ -1,0 +1,14 @@
+  app-__APP_ID__:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE: mywork-app-__APP_ID__
+        MODULE: __APP_MODULE__.main
+        APP_DIR: apps/__APP_ID__
+    image: mywork-hub-app-__APP_ID__:dev
+    environment:
+      ROOT_PATH: /api/apps/__APP_ID__
+      APP_MANIFEST: /app/manifest.yaml
+

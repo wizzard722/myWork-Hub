@@ -4,15 +4,19 @@ metadata:
   name: hub-config
 data:
   HUB_ENVIRONMENT: production
-  # Apps die de core kent: <app-id>=<interne url>. Elke app is een Service "app-<id>".
+  # Apps die de core kent: <app-id>=http://app-<id>:8000 (bijgewerkt door scripts/new_app.py)
   HUB_APPS: hello=http://app-hello:8000
 ---
+# Vervangt gateway/env.conf in Kubernetes. nginx gebruikt geen DNS-zoekdomeinen,
+# dus de volledige servicenaam is nodig. Andere namespace dan "mywork-hub"? Pas de
+# suffix aan in de overlay.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: gateway-config
 data:
-  NGINX_RESOLVER: kube-dns.kube-system.svc.cluster.local
-  # nginx gebruikt geen DNS-zoekdomeinen: volledige naam nodig. Overlay past de
-  # namespace aan als die anders is dan "mywork-hub".
-  HUB_SERVICE_SUFFIX: .mywork-hub.svc.cluster.local
+  env.conf: |
+    resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
+    map $host $hub_service_suffix {
+        default ".mywork-hub.svc.cluster.local";
+    }

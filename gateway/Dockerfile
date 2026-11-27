@@ -1,7 +1,8 @@
-FROM nginxinc/nginx-unprivileged:1.27-alpine
-# Alleen deze variabelen invullen; nginx-variabelen zoals $host blijven staan.
-ENV NGINX_ENVSUBST_FILTER="^(NGINX_RESOLVER|HUB_SERVICE_SUFFIX)$" \
-    NGINX_RESOLVER=127.0.0.11 \
-    HUB_SERVICE_SUFFIX=""
-COPY default.conf.template /etc/nginx/templates/default.conf.template
+# Gateway op het gehardende Chainguard nginx-image: geen shell, niet-root (uid 65532).
+ARG NGINX_IMAGE=cgr.dev/chainguard/nginx:latest
+FROM ${NGINX_IMAGE}
+COPY nginx.conf env.conf /etc/nginx/hub/
+USER 65532
 EXPOSE 8080
+ENTRYPOINT ["/usr/sbin/nginx"]
+CMD ["-c", "/etc/nginx/hub/nginx.conf", "-e", "/dev/stderr", "-g", "daemon off;"]

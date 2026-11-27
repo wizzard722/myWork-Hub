@@ -23,7 +23,10 @@ export function App() {
         {theme.logo_url ? (
           <img className="logo" src={theme.logo_url} alt={theme.name} />
         ) : (
-          <span className="brand">{theme.name}</span>
+          <span className="brand">
+            <img className="mark" src="/logo-mark.svg" alt="" />
+            {theme.name}
+          </span>
         )}
       </header>
       <main className="content">

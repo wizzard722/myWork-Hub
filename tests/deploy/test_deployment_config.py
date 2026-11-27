@@ -4,12 +4,14 @@ Deze tests draaien zonder cluster of Docker: ze lezen de YAML-bestanden en bewak
 beide manieren van draaien dezelfde services hebben en aan de basisregels voldoen.
 """
 
+import os
 from pathlib import Path
 
 import pytest
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
+# HUB_REPO_ROOT: gebruikt door de generator-test om een kopie van de repo te controleren.
+ROOT = Path(os.environ.get("HUB_REPO_ROOT") or Path(__file__).resolve().parents[2])
 K8S_BASE = ROOT / "deploy" / "kubernetes" / "base"
 K8S_OVERLAYS = ROOT / "deploy" / "kubernetes" / "overlays"
 
@@ -67,11 +69,14 @@ def test_deployment_is_production_ready(name):
     pod = spec["template"]["spec"]
     assert spec["replicas"] >= 2, "minimaal 2 replica's voor beschikbaarheid"
     assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["securityContext"]["runAsUser"] == 65532, "uid van de gehardende images"
+    assert pod["automountServiceAccountToken"] is False
     for container in pod["containers"]:
         assert "readinessProbe" in container and "livenessProbe" in container
         assert "requests" in container["resources"]
         assert "memory" in container["resources"]["limits"]
         assert container["securityContext"]["allowPrivilegeEscalation"] is False
+        assert container["securityContext"]["readOnlyRootFilesystem"] is True
         assert container["securityContext"]["capabilities"]["drop"] == ["ALL"]
 
 
@@ -126,3 +131,31 @@ def test_hub_apps_point_to_known_services():
         app_id, _, url = item.partition("=")
         assert url == f"http://app-{app_id}:8000"
         assert f"app-{app_id}" in compose()["services"]
+
+
+def test_compose_services_are_hardened():
+    for name, service in compose()["services"].items():
+        if name in {"postgres", "redis"}:
+            assert service["image"].startswith("cgr.dev/chainguard/"), name
+            continue
+        assert service.get("read_only") is True, name
+        assert service.get("cap_drop") == ["ALL"], name
+        assert "no-new-privileges:true" in service.get("security_opt", []), name
+
+
+def test_dockerfiles_use_hardened_base_images():
+    dockerfiles = [
+        ROOT / "docker" / "python-service.Dockerfile",
+        ROOT / "gateway" / "Dockerfile",
+        ROOT / "web" / "Dockerfile",
+    ]
+    for dockerfile in dockerfiles:
+        text = dockerfile.read_text()
+        base_args = [
+            line for line in text.splitlines() if line.startswith("ARG ") and "_IMAGE=" in line
+        ]
+        assert base_args, dockerfile
+        for line in base_args:
+            assert "=cgr.dev/chainguard/" in line, f"{dockerfile}: {line}"
+        assert "USER 65532" in text, dockerfile
+        assert "ENTRYPOINT [" in text, f"{dockerfile}: exec-vorm nodig (geen shell in image)"

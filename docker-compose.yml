@@ -1,25 +1,37 @@
 name: mywork-hub
 
+# Alle images zijn gehardend (Chainguard, Wolfi-basis): geen shell, niet-root
+# (uid 65532), minimale inhoud. Zie docs/containers.md.
+
 x-python-service: &python-service
   restart: unless-stopped
   env_file:
     - path: .env
       required: false
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
   healthcheck:
-    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
     interval: 15s
     timeout: 3s
     retries: 3
 
+x-nginx-service: &nginx-service
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
 services:
   gateway:
+    <<: *nginx-service
     build: ./gateway
+    image: mywork-hub-gateway:dev
     ports: ["8080:8080"]
-    environment:
-      NGINX_RESOLVER: 127.0.0.11
-      HUB_SERVICE_SUFFIX: ""
     depends_on: [core, web]
-    restart: unless-stopped
 
   core:
     <<: *python-service
@@ -29,14 +41,38 @@ services:
       args:
         PACKAGE: mywork-core
         MODULE: core.main
+    image: mywork-hub-core:dev
     environment:
       ROOT_PATH: /api/core
-      HUB_APPS: ${HUB_APPS:-hello=http://app-hello:8000}
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+      # Apps die de core kent: <app-id>=http://app-<id>:8000 (bijgewerkt door scripts/new_app.py)
+      HUB_APPS: hello=http://app-hello:8000
+    depends_on: [postgres, redis]
 
-  # Elke app is een eigen service met de naam app-<id>.
+  web:
+    <<: *nginx-service
+    build: ./web
+    image: mywork-hub-web:dev
+
+  # Nog niet in gebruik in fase 1: klaar voor fase 2 (database) en fase 4 (events).
+  postgres:
+    image: cgr.dev/chainguard/postgres:latest
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mywork}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-mywork}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: cgr.dev/chainguard/redis:latest
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  # ---- Apps: elke app is een eigen service "app-<id>" --------------------------------
+  # Nieuwe apps worden hieronder toegevoegd door scripts/new_app.py.
+
   app-hello:
     <<: *python-service
     build:
@@ -46,38 +82,12 @@ services:
         PACKAGE: mywork-app-hello
         MODULE: hello.main
         APP_DIR: apps/hello
+    image: mywork-hub-app-hello:dev
     environment:
       ROOT_PATH: /api/apps/hello
       APP_MANIFEST: /app/manifest.yaml
 
-  web:
-    build: ./web
-    restart: unless-stopped
-
-  # Nog niet in gebruik in fase 1: klaar voor fase 2 (database) en fase 4 (events).
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-mywork}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: ${POSTGRES_DB:-mywork}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
-      interval: 10s
-      retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      retries: 5
-    restart: unless-stopped
+  # <<< einde apps (markering voor scripts/new_app.py, niet verwijderen)
 
 volumes:
   postgres-data:

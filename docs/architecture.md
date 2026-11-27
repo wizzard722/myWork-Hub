@@ -2,7 +2,16 @@
 
 > **Levend document.** Bij elke wijziging aan de structuur, een service, een app, de
 > deployment of de tests wordt dit bestand in dezelfde commit bijgewerkt.
-> Laatst bijgewerkt: fase 1 (projectopzet + Kubernetes + tests).
+> Laatst bijgewerkt: fase 1 (projectopzet, Kubernetes, tests, app-template,
+> gehardende containers, logo).
+
+Documentatie:
+
+| Document | Over |
+| --- | --- |
+| `docs/architecture.md` | Dit document: keuzes, onderdelen, structuur, tests |
+| [`docs/apps.md`](apps.md) | Apps ontwikkelen: template, generator, manifest, checklist |
+| [`docs/containers.md`](containers.md) | Gehardende images, bouwen, scannen, publiceren |
 
 myWork-Hub is een SaaS-platform in de geest van Nextcloud Hub: één hub waarin klanten
 apps gebruiken (bestanden, agenda, taken, chat, …).
@@ -136,8 +145,10 @@ database, te beheren via de core-API.
 
 ## 7. Draaien: Docker en Kubernetes
 
-Beide gebruiken dezelfde vier images: `mywork-hub-gateway`, `mywork-hub-core`,
-`mywork-hub-app-<id>` en `mywork-hub-web`. Alle containers draaien als niet-root.
+Beide gebruiken dezelfde images: `mywork-hub-gateway`, `mywork-hub-core`,
+`mywork-hub-app-<id>` en `mywork-hub-web`. Alle images zijn **gehardend**: gebouwd op
+Chainguard-images (geen shell, niet-root uid 65532, read-only bestandssysteem). Details,
+bouwen en publiceren: [containers.md](containers.md).
 
 | | Docker Compose | Kubernetes |
 | --- | --- | --- |
@@ -148,7 +159,7 @@ Beide gebruiken dezelfde vier images: `mywork-hub-gateway`, `mywork-hub-core`,
 | Beschikbaarheid | `restart: unless-stopped` | PodDisruptionBudget, rolling updates, spreiding over nodes |
 | PostgreSQL / Redis | Containers in de compose | Extern: managed dienst of operator (bijv. CloudNativePG) |
 | Instellingen | `.env` | ConfigMap `hub-config`, Secret `hub-secrets` |
-| DNS in gateway | `NGINX_RESOLVER=127.0.0.11`, geen suffix | kube-dns + `HUB_SERVICE_SUFFIX=.<namespace>.svc.cluster.local` |
+| DNS in gateway | `gateway/env.conf` (Docker-DNS, geen suffix) | ConfigMap `gateway-config` (kube-dns, suffix `.<namespace>.svc.cluster.local`) |
 
 Starten:
 
@@ -158,7 +169,8 @@ kubectl apply -k deploy/kubernetes/overlays/production         # Kubernetes
 ```
 
 De productie-overlay zet namespace, image-namen/tags (`ghcr.io/wizzard722/...`) en de
-domeinnaam. Images bouwen en publiceren naar een registry is nog niet geautomatiseerd.
+domeinnaam. De workflow `Images` bouwt, scant en publiceert de images
+(zie [containers.md](containers.md)).
 
 ## 8. Tests
 
@@ -170,10 +182,14 @@ Alle tests staan in de repository en draaien in CI (`.github/workflows/ci.yml`).
 | Unit — core | `services/core/tests/` | Theming (ook CSS-injectie), app-register, config | `uv run pytest` |
 | Unit — apps | `apps/<id>/tests/` | API en manifest van de app | `uv run pytest` |
 | Deployment | `tests/deploy/` | Compose en Kubernetes gelijk, probes, limieten, non-root, HPA/PDB, naamgeving | `uv run pytest` |
-| Integratie | `tests/integration/` | Core en app als echte processen die via HTTP praten | `uv run pytest` |
+| Integratie | `tests/integration/test_services.py` | Core en app als echte processen die via HTTP praten | `uv run pytest` |
+| Integratie — gateway | `tests/integration/test_gateway.py` | Echte nginx-config van gateway en web: routering, SPA, headers (vereist `nginx` en `dnsmasq`) | `uv run pytest` |
+| Templates | `tests/templates/` | Generator maakt werkende app; `hello` gelijk aan templates; image-lijst compleet | `uv run pytest` |
 | Frontend | `web/src/__tests__/` | Web-schil: thema, app-lijst, foutmeldingen | `cd web && npm test` |
 | Kubernetes-schema | CI-job `kubernetes` | Kustomize renderen + kubeconform | alleen CI |
+| Images | CI-job `docker` | uid 65532 en geen shell in elk image | alleen CI |
 | Rooktest | CI-job `docker` | Hele stack via gateway (`docker compose up`) | alleen CI |
+| Kwetsbaarheden | Workflow `Images` | Trivy-scan van elk image (HIGH/CRITICAL) | alleen CI |
 
 Regel: nieuwe code komt met tests in dezelfde commit.
 
@@ -190,7 +206,22 @@ Twee varianten van de core hub staan op een ontwerpcanvas:
 Beide gebruiken alleen de themakleuren; de accentkleur is op het canvas aan te passen
 om theming per klant te laten zien.
 
-## 10. Structuur van de repository
+## 10. Logo en huisstijl
+
+Bestanden in `branding/`:
+
+| Bestand | Gebruik |
+| --- | --- |
+| `logo.svg` | Logo met woordmerk, voor lichte achtergronden |
+| `logo-dark.svg` | Logo met woordmerk, voor donkere achtergronden |
+| `logo-mark.svg` | Alleen het beeldmerk (ook favicon, `web/public/favicon.svg`) |
+| `preview.png` | Voorbeeld van alle varianten |
+
+Het beeldmerk is een hub: een centraal knooppunt (de core) met vijf verbonden
+knooppunten (de apps), in de primaire kleur `#0b5fff`. Het woordmerk gebruikt Inter
+(vet). Klanten vervangen het logo via hun thema (`logo_url`, `favicon_url`).
+
+## 11. Structuur van de repository
 
 ```
 mywork-hub/
@@ -199,17 +230,29 @@ mywork-hub/
 ├── LICENSE
 ├── pyproject.toml                     uv-workspace, ruff- en pytest-instellingen
 ├── uv.lock                            Vastgezette Python-afhankelijkheden
-├── docker-compose.yml                 Hele hub op één machine
+├── docker-compose.yml                 Hele hub op één machine (gehardende images)
 ├── .env.example                       Voorbeeldinstellingen voor Docker
 ├── .dockerignore / .gitignore
-├── .github/workflows/ci.yml           CI: python, web, kubernetes, docker
+├── .github/workflows/
+│   ├── ci.yml                         Tests, Kubernetes-validatie, image-checks, rooktest
+│   └── images.yml                     Images bouwen, scannen (Trivy), publiceren (GHCR)
+├── branding/                          Logo's (SVG) en voorbeeld
 ├── docs/
-│   └── architecture.md                Dit document
+│   ├── architecture.md                Dit document
+│   ├── apps.md                        Handleiding apps ontwikkelen
+│   └── containers.md                  Gehardende containers, bouwen en publiceren
+├── scripts/
+│   ├── new_app.py                     Nieuwe app maken uit de templates
+│   └── images.py                      Alle images opsommen en bouwen
+├── templates/
+│   ├── app/                           Sjabloon voor apps/<id>/
+│   └── deploy/                        Sjablonen voor Compose-service en Kubernetes
 ├── packages/
 │   └── sdk/                           Python-SDK voor core en apps (mywork_sdk)
 │       ├── src/mywork_sdk/
 │       │   ├── manifest.py            AppManifest, EventSpec, load_manifest
-│       │   └── service.py             create_service: /health en /manifest
+│       │   ├── service.py             create_service: /health en /manifest
+│       │   └── serve.py               Starter voor containers zonder shell
 │       └── tests/
 ├── services/
 │   └── core/                          Core-service
@@ -225,20 +268,22 @@ mywork-hub/
 │       ├── src/hello/main.py
 │       └── tests/
 ├── web/                               React-schil (Vite + TypeScript)
-│   ├── index.html                     Laadt theme.css uit de core
+│   ├── index.html                     Laadt favicon en theme.css uit de core
+│   ├── public/                        favicon.svg, logo-mark.svg
 │   ├── src/
 │   │   ├── main.tsx / App.tsx         Schil en app-overzicht
 │   │   ├── api.ts                     Aanroepen naar de core
 │   │   ├── theme/ThemeProvider.tsx    Thema-context (naam, logo, favicon)
 │   │   ├── styles.css                 Alleen --mw-*-variabelen
 │   │   └── __tests__/                 Frontend-tests (Vitest)
-│   ├── nginx.conf / Dockerfile        Productie-image (poort 8080, non-root)
+│   ├── nginx.conf / Dockerfile        Chainguard nginx, poort 8080, uid 65532
 │   └── vite.config.ts / vitest.config.ts
 ├── gateway/
-│   ├── default.conf.template          nginx-routering (Docker en Kubernetes)
-│   └── Dockerfile
+│   ├── nginx.conf                     Routering (Docker en Kubernetes)
+│   ├── env.conf                       DNS-instellingen voor Docker (Kubernetes: ConfigMap)
+│   └── Dockerfile                     Chainguard nginx
 ├── docker/
-│   ├── python-service.Dockerfile      Gedeelde Dockerfile voor core en apps
+│   ├── python-service.Dockerfile      Gedeelde Dockerfile voor core en apps (Chainguard python)
 │   └── empty/                         Lege map voor services zonder manifest
 ├── deploy/
 │   └── kubernetes/
@@ -246,13 +291,14 @@ mywork-hub/
 │       └── overlays/production/       Namespace, images, domeinnaam
 └── tests/
     ├── deploy/                        Tests op Docker- en Kubernetes-configuratie
-    └── integration/                   Integratietests over services heen
+    ├── integration/                   Integratietests: services en gateway
+    └── templates/                     Tests op templates, generator en image-lijst
 ```
 
-## 11. Fasering
+## 12. Fasering
 
 1. **Projectopzet** ✅ — monorepo, SDK, core, voorbeeld-app, gateway, web-schil, Docker,
-   Kubernetes, tests, CI, mockups.
+   Kubernetes, tests, CI, mockups, app-template en generator, gehardende containers, logo.
 2. Klanten, gebruikers, inloggen, rechten, Row-Level Security, thema per klant.
 3. App-register in de database, apps per klant aan/uit, service-tokens.
 4. Events tussen apps via Redis Streams; twee voorbeeld-apps die data uitwisselen.

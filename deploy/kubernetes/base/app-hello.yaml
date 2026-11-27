@@ -1,3 +1,5 @@
+# App "hello": Deployment, Service, autoscaling en beschikbaarheid.
+# Gemaakt uit templates/deploy/kubernetes-app.yaml door scripts/new_app.py.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,8 +25,8 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile: { type: RuntimeDefault }
       topologySpreadConstraints:
         - maxSkew: 1

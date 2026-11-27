@@ -56,7 +56,7 @@ class Theme(BaseModel):
 
     name: str = Field(default="myWork-Hub", max_length=80)
     logo_url: str | None = None
-    favicon_url: str | None = None
+    favicon_url: str | None = "/favicon.svg"
     font_family: str = Field(
         default='Inter, "Segoe UI", system-ui, -apple-system, sans-serif', pattern=FONT_STACK
     )

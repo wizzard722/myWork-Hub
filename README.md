@@ -1,11 +1,16 @@
+<p><img src="branding/logo.svg" alt="myWork-Hub" height="64"></p>
+
 # myWork-Hub
 
 Een SaaS-hub voor klanten, in de geest van Nextcloud Hub. Apps draaien als losse services
 en wisselen gegevens uit via API's en events; de core regelt klanten, gebruikers, het
 app-register en het thema.
 
-Zie [docs/architecture.md](docs/architecture.md) voor de architectuur, de volledige
-mappenstructuur, de tests en de fasering.
+Documentatie:
+
+- [docs/architecture.md](docs/architecture.md) — architectuur, volledige mappenstructuur, tests, fasering
+- [docs/apps.md](docs/apps.md) — apps ontwikkelen met de template en generator
+- [docs/containers.md](docs/containers.md) — gehardende containers bouwen, scannen en publiceren
 
 ## Structuur (kort)
 
@@ -16,7 +21,10 @@ apps/hello/         Voorbeeld-app als losse service
 web/                React-schil (Vite + TypeScript)
 gateway/            nginx: enige publieke ingang
 deploy/kubernetes/  Kustomize voor Kubernetes
-tests/              Deployment- en integratietests
+templates/          Sjablonen voor nieuwe apps
+scripts/            new_app.py (app maken), images.py (images bouwen)
+branding/           Logo's
+tests/              Deployment-, integratie- en templatetests
 ```
 
 ## Starten met Docker
@@ -64,15 +72,20 @@ npm run dev        # http://localhost:5173, /api gaat naar de gateway op :8080
 
 ## Een nieuwe app toevoegen
 
-1. Maak `apps/<id>/` met een `manifest.yaml` en een FastAPI-service via
-   `mywork_sdk.create_service(...)` (kijk naar `apps/hello`).
-2. Voeg het pakket toe aan `members` in de root-`pyproject.toml`.
-3. Voeg een service `app-<id>` toe in `docker-compose.yml` met `ROOT_PATH=/api/apps/<id>`.
-4. Voeg `deploy/kubernetes/base/app-<id>.yaml` toe (kopieer `app-hello.yaml`) en zet
-   het in `kustomization.yaml`.
-5. Voeg `<id>=http://app-<id>:8000` toe aan `HUB_APPS` (`.env.example` en
-   `deploy/kubernetes/base/config.yaml`).
-6. Schrijf tests in `apps/<id>/tests/` en werk `docs/architecture.md` bij.
+```bash
+uv run python scripts/new_app.py --id agenda --name "Agenda" --description "Agenda's en afspraken"
+uv sync --all-packages && uv run pytest
+```
 
-De gateway hoeft niet aangepast te worden. `tests/deploy/` controleert of Docker en
-Kubernetes gelijk lopen.
+De generator maakt de app en zet hem in Docker Compose, Kubernetes en de uv-workspace.
+Volledige handleiding: [docs/apps.md](docs/apps.md).
+
+## Containers
+
+Alle images zijn gehardend (Chainguard: geen shell, niet-root). Bouwen:
+
+```bash
+uv run python scripts/images.py build
+```
+
+Meer: [docs/containers.md](docs/containers.md).

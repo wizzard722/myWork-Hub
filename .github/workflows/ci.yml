@@ -12,6 +12,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - name: nginx en dnsmasq voor de gateway-integratietest
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q nginx dnsmasq-base
+          sudo systemctl stop nginx || true
       - run: uv sync --all-packages --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -52,6 +57,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose build
+      - name: Images draaien zonder shell en als niet-root
+        run: |
+          for image in mywork-hub-core:dev mywork-hub-app-hello:dev mywork-hub-gateway:dev mywork-hub-web:dev; do
+            user=$(docker image inspect --format '{{.Config.User}}' "$image")
+            echo "$image -> user $user"
+            test "$user" = "65532"
+            if docker run --rm --entrypoint /bin/sh "$image" -c true 2>/dev/null; then
+              echo "::error::$image bevat een shell"; exit 1
+            fi
+          done
       - name: Stack starten en rooktest
         run: |
           docker compose up -d --wait

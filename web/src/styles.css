@@ -32,7 +32,8 @@ body {
   background: var(--mw-color-primary);
   color: var(--mw-color-primary-contrast);
 }
-.brand { font-weight: 600; font-size: 1.1rem; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.1rem; }
+.mark { height: 32px; width: 32px; border-radius: 8px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4); }
 .logo { height: 32px; }
 
 .content { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
