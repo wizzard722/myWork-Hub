@@ -35,4 +35,6 @@ def test_matrix_is_json(capsys):
 def test_kubernetes_overlay_lists_every_image():
     overlay = (ROOT / "deploy/kubernetes/overlays/production/kustomization.yaml").read_text()
     for img in images.discover():
+        if img["name"] == "mywork-hub-proxy":
+            continue  # in Kubernetes is de Ingress-controller de reverse proxy
         assert f"name: {img['name']}," in overlay, img["name"]

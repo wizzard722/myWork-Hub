@@ -57,31 +57,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose build
-      - name: Images draaien zonder shell en als niet-root
+      - name: Images draaien zonder shell en apk, als niet-root
         run: |
-          for image in mywork-hub-core:dev mywork-hub-app-hello:dev mywork-hub-gateway:dev mywork-hub-web:dev; do
+          for image in mywork-hub-core:dev mywork-hub-app-hello:dev mywork-hub-gateway:dev mywork-hub-web:dev mywork-hub-proxy:dev; do
             user=$(docker image inspect --format '{{.Config.User}}' "$image")
             echo "$image -> user $user"
-            test "$user" = "65532"
-            if docker run --rm --entrypoint /bin/sh "$image" -c true 2>/dev/null; then
-              echo "::error::$image bevat een shell"; exit 1
-            fi
+            test "$user" = "65532:65532"
+            for binary in /bin/sh /sbin/apk; do
+              if docker run --rm --entrypoint "$binary" "$image" --version >/dev/null 2>&1; then
+                echo "::error::$image bevat $binary"; exit 1
+              fi
+            done
           done
-      - name: Stack starten en rooktest
+      - name: Stack starten en rooktest (via de reverse proxy, HTTPS)
         run: |
           docker compose up -d --wait
-          curl -fsS http://localhost:8080/api/core/health
-          curl -fsS http://localhost:8080/api/core/theme/theme.css | grep -q -- '--mw-color-primary'
-          curl -fsS http://localhost:8080/api/core/apps | grep -q '"status":"ok"'
-          curl -fsS http://localhost:8080/api/apps/hello/greetings/CI | grep -q 'Hallo CI'
-          curl -fsS http://localhost:8080/ | grep -q 'theme.css'
-          # Klant aanmaken (container zonder shell: python direct) en inloggen
+          R="--resolve rooktest.localhost:443:127.0.0.1"
+          curl -fsSk https://localhost/api/core/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/)" = "308"
+          curl -fsSk -D - -o /dev/null https://localhost/ | grep -qi strict-transport-security
+          curl -fsSk https://localhost/api/core/theme/theme.css | grep -q -- '--mw-color-primary'
+          curl -fsSk https://localhost/api/core/apps | grep -q '"status":"ok"'
+          curl -fsSk https://localhost/api/apps/hello/greetings/CI | grep -q 'Hallo CI'
+          curl -fsSk https://localhost/ | grep -q 'theme.css'
           docker compose exec -T -e HUB_OWNER_PASSWORD=rooktest-wachtwoord core \
             python -m core.cli create-tenant --slug rooktest --name "Rooktest" \
             --owner-email eigenaar@rooktest.nl --owner-name "Eigenaar"
-          curl -fsS -X POST http://localhost:8080/api/core/auth/login \
-            -H 'Content-Type: application/json' -H 'Host: rooktest.localhost:8080' \
+          curl -fsSk $R -X POST https://rooktest.localhost/api/core/auth/login \
+            -H 'Content-Type: application/json' \
             -d '{"email":"eigenaar@rooktest.nl","password":"rooktest-wachtwoord"}' | grep -q access_token
-          curl -fsS http://localhost:8080/api/core/theme -H 'Host: rooktest.localhost:8080' | grep -q Rooktest
+          curl -fsSk $R https://rooktest.localhost/api/core/theme | grep -q Rooktest
+      - name: Netwerkafscherming
+        run: |
+          ! docker compose exec -T core python -c "import urllib.request;urllib.request.urlopen('https://example.com',timeout=5)"
+          ! docker compose exec -T app-hello python -c "import socket;socket.create_connection(('postgres',5432),3)"
+          ! nc -z -w2 127.0.0.1 5432
+          ! nc -z -w2 127.0.0.1 8080
       - if: failure()
         run: docker compose logs

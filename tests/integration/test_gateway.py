@@ -219,3 +219,27 @@ def test_security_headers(gateway):
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["x-request-id"]
     assert "nginx/" not in headers.get("server", "")
+
+
+def test_login_is_rate_limited(gateway):
+    # 10 per minuut met burst 5: binnen een paar pogingen volgt 429.
+    codes = [
+        httpx.post(
+            f"{gateway}/api/core/auth/login", json={}, headers={"X-Forwarded-For": "10.9.9.9"}
+        ).status_code
+        for _ in range(12)
+    ]
+    assert 429 in codes
+
+
+def test_rate_limit_is_per_client_ip(gateway):
+    # Een ander IP (via de proxy doorgegeven) heeft een eigen teller.
+    response = httpx.post(
+        f"{gateway}/api/core/auth/login", json={}, headers={"X-Forwarded-For": "10.8.8.8"}
+    )
+    assert response.status_code != 429
+
+
+def test_assistant_route(gateway):
+    # Geen assistent-service in deze test: de route bestaat wel (502, geen 404).
+    assert httpx.get(f"{gateway}/api/assistant/health").status_code == 502

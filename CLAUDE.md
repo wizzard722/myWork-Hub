@@ -12,7 +12,7 @@
 - **`docs/containers.md`** wordt bijgewerkt bij wijzigingen aan Dockerfiles,
   basisimages, `scripts/images.py` of de workflow `images.yml`.
 - Nieuwe apps altijd met `scripts/new_app.py`, nooit met de hand kopiëren.
-- Containers alleen op gehardende basisimages (Chainguard), als uid 65532, zonder shell
+- Containers alleen op Alpine met vaste versie, gehardend (geen shell/apk), als uid 65532
   in de draaifase.
 - **Tests horen bij de code** en staan in de repository: nieuwe of gewijzigde code komt
   met tests in dezelfde commit (zie sectie "Tests" in `docs/architecture.md`).

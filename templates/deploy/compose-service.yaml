@@ -11,4 +11,6 @@
     environment:
       ROOT_PATH: /api/apps/__APP_ID__
       APP_MANIFEST: /app/manifest.yaml
+      HUB_CORE_URL: http://core:8000
+    networks: [internal]
 

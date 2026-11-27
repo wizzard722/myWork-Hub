@@ -8,6 +8,8 @@ labels:
     includeSelectors: false
 resources:
   - config.yaml
+  - data.yaml
+  - networkpolicies.yaml
   - gateway.yaml
   - core.yaml
   - web.yaml

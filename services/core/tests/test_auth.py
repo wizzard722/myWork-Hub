@@ -154,3 +154,12 @@ def test_public_tenant(client):
     assert client.get("/tenant/public", headers=host("acme")).json()["name"] == "Acme BV"
     assert client.get("/tenant/public?tenant=acme").status_code == 200
     assert client.get("/tenant/public?tenant=onbekend").status_code == 404
+
+
+def test_tls_ask_only_for_known_tenants(client):
+    signup(client, "acme")
+    assert client.get("/tls/ask?domain=hub.test").status_code == 200
+    assert client.get("/tls/ask?domain=acme.hub.test").status_code == 200
+    assert client.get("/tls/ask?domain=onbekend.hub.test").status_code == 404
+    assert client.get("/tls/ask?domain=www.hub.test").status_code == 404
+    assert client.get("/tls/ask?domain=evil.example.com").status_code == 404

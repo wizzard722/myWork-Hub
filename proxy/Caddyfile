@@ -1,0 +1,63 @@
+# Publieke reverse proxy van myWork-Hub (Caddy).
+#
+# - TLS: automatisch certificaten (Let's Encrypt), ook per klant-subdomein
+#   (on-demand, alleen voor bestaande klanten: Caddy vraagt het de core).
+# - Beveiligingsheaders, HSTS, compressie, limiet op uploadgrootte.
+# - Stuurt alles door naar de interne gateway; de gateway is niet publiek bereikbaar.
+#
+# Omgevingsvariabelen:
+#   HUB_DOMAIN   basisdomein, bijv. hub.example.com (ontwikkeling: localhost)
+#   HUB_TLS      internal (eigen CA, ontwikkeling) | ondemand (productie, subdomeinen)
+#   ACME_EMAIL   e-mailadres voor Let's Encrypt
+{
+	email {$ACME_EMAIL:admin@example.com}
+	admin off
+	on_demand_tls {
+		ask http://gateway:8080/api/core/tls/ask
+	}
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
+(tls-internal) {
+	tls internal
+}
+
+(tls-ondemand) {
+	tls {
+		on_demand
+	}
+}
+
+(hub) {
+	import tls-{$HUB_TLS:internal}
+	encode zstd gzip
+	request_body {
+		max_size 100MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Content-Security-Policy "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		-Server
+		-Via
+	}
+	reverse_proxy gateway:8080 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$HUB_DOMAIN:localhost}, *.{$HUB_DOMAIN:localhost} {
+	import hub
+}

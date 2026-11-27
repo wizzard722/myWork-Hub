@@ -1,38 +1,66 @@
 name: mywork-hub
 
-# Alle images zijn gehardend (Chainguard, Wolfi-basis): geen shell, niet-root
-# (uid 65532), minimale inhoud. Zie docs/containers.md.
+# Ontwikkel- en testopstelling: bouwt alle images zelf. Voor productie met kant-en-klare
+# images: docker-compose.prod.yml.
+#
+# Netwerken (zie docs/security.md):
+#   edge      proxy <-> gateway; alleen de proxy publiceert poorten (80/443)
+#   internal  gateway, core, web, assistent en apps; geen internettoegang
+#   data      core (en assistent) <-> PostgreSQL en Redis; geen internettoegang
+#   egress    alleen voor diensten die naar internet moeten (proxy: certificaten,
+#             assistent: LLM-API)
+#
+# Alle eigen images zijn gehardend (Alpine, zonder shell en apk, uid 65532).
 
-x-python-service: &python-service
+x-hardened: &hardened
   restart: unless-stopped
-  env_file:
-    - path: .env
-      required: false
   read_only: true
   tmpfs: [/tmp]
   security_opt: ["no-new-privileges:true"]
   cap_drop: [ALL]
+
+x-python-service: &python-service
+  <<: *hardened
+  env_file:
+    - path: .env
+      required: false
   healthcheck:
     test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
     interval: 15s
     timeout: 3s
     retries: 3
 
-x-nginx-service: &nginx-service
-  restart: unless-stopped
-  read_only: true
-  tmpfs: [/tmp]
-  security_opt: ["no-new-privileges:true"]
-  cap_drop: [ALL]
-
 services:
+  # ---- Publieke ingang ---------------------------------------------------------------
+  proxy:
+    <<: *hardened
+    build: ./proxy
+    image: mywork-hub-proxy:dev
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    sysctls:
+      # Poorten onder 1024 binden zonder root of capabilities.
+      net.ipv4.ip_unprivileged_port_start: 0
+    environment:
+      HUB_DOMAIN: ${HUB_DOMAIN:-localhost}
+      HUB_TLS: ${HUB_TLS:-internal}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - proxy-data:/data
+      - proxy-config:/config
+    networks: [edge, egress]
+    depends_on: [gateway]
+
   gateway:
-    <<: *nginx-service
+    <<: *hardened
     build: ./gateway
     image: mywork-hub-gateway:dev
-    ports: ["8080:8080"]
+    networks: [edge, internal]
     depends_on: [core, web]
 
+  # ---- Core hub ----------------------------------------------------------------------
   core:
     <<: *python-service
     build:
@@ -45,39 +73,59 @@ services:
     environment:
       ROOT_PATH: /api/core
       HUB_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mywork}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-mywork}
-      # Klanten via subdomein: http://<klant>.localhost:8080 (of zonder subdomein inloggen).
-      HUB_BASE_DOMAIN: ${HUB_BASE_DOMAIN:-localhost}
-      HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:-http://localhost:8080}
-      # Alleen voor http://localhost; zet op true achter https.
-      HUB_COOKIE_SECURE: ${HUB_COOKIE_SECURE:-false}
+      HUB_REDIS_URL: redis://:${REDIS_PASSWORD:-change-me-too}@redis:6379/0
+      # Klanten via subdomein: https://<klant>.<HUB_DOMAIN> (of zonder subdomein inloggen).
+      HUB_BASE_DOMAIN: ${HUB_DOMAIN:-localhost}
+      HUB_PUBLIC_URL: https://${HUB_DOMAIN:-localhost}
+      HUB_COOKIE_SECURE: "true"
       # Leeg = tijdelijke sleutel (alleen ontwikkeling). Maak er een met:
       #   docker compose run --rm --entrypoint python core -m core.cli generate-key
       HUB_JWT_PRIVATE_KEY: ${HUB_JWT_PRIVATE_KEY:-}
       # Apps die de core kent: <app-id>=http://app-<id>:8000 (bijgewerkt door scripts/new_app.py)
       HUB_APPS: hello=http://app-hello:8000
-    depends_on: [postgres, redis]
+    networks: [internal, data]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   web:
-    <<: *nginx-service
+    <<: *hardened
     build: ./web
     image: mywork-hub-web:dev
+    networks: [internal]
 
+  # PostgreSQL en Redis horen bij de core hub (alleen bereikbaar via het data-netwerk).
   postgres:
-    image: cgr.dev/chainguard/postgres:latest
+    <<: *hardened
+    image: postgres:17-alpine
+    user: "70:70"
+    tmpfs: [/tmp, /var/run/postgresql]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mywork}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-mywork}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    restart: unless-stopped
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-mywork}", "-d", "${POSTGRES_DB:-mywork}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
-  # Nog niet in gebruik: klaar voor fase 4 (events).
   redis:
-    image: cgr.dev/chainguard/redis:latest
+    <<: *hardened
+    image: redis:7.4-alpine
+    user: "999:1000"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-me-too}", "--appendonly", "yes", "--protected-mode", "yes"]
     volumes:
       - redis-data:/data
-    restart: unless-stopped
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-change-me-too}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   # ---- Apps: elke app is een eigen service "app-<id>" --------------------------------
   # Nieuwe apps worden hieronder toegevoegd door scripts/new_app.py.
@@ -95,9 +143,21 @@ services:
     environment:
       ROOT_PATH: /api/apps/hello
       APP_MANIFEST: /app/manifest.yaml
+      HUB_CORE_URL: http://core:8000
+    networks: [internal]
 
   # <<< einde apps (markering voor scripts/new_app.py, niet verwijderen)
+
+networks:
+  edge: {}
+  internal:
+    internal: true
+  data:
+    internal: true
+  egress: {}
 
 volumes:
   postgres-data:
   redis-data:
+  proxy-data:
+  proxy-config:

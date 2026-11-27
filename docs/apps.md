@@ -186,7 +186,7 @@ kubectl apply -k deploy/kubernetes/overlays/production
 ```
 
 Het image wordt gebouwd met `docker/python-service.Dockerfile` op een gehardend
-Chainguard-image (zie [containers.md](containers.md)). De workflow `Images` bouwt, scant
+gehardend Alpine-image (zie [containers.md](containers.md)). De workflow `Images` bouwt, scant
 en publiceert het automatisch.
 
 ## 10. Checklist voor een nieuwe app

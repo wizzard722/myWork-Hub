@@ -10,6 +10,7 @@ from core.deps import DbDep, HostSlugDep, PrincipalDep, SettingsDep, SignerDep
 from core.models import Tenant
 from core.routers.auth import _session_response
 from core.routers.schemas import SessionOut, SignupIn, TenantOut, TenantUpdate
+from core.tenancy import slug_from_host
 
 router = APIRouter(tags=["klanten"])
 
@@ -24,6 +25,26 @@ async def public_tenant(
     if found is None or found.status != "active":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Onbekende klant")
     return TenantOut.model_validate(found)
+
+
+@router.get("/tls/ask", include_in_schema=False)
+async def tls_ask(
+    request: Request,
+    settings: SettingsDep,
+    domain: str = Query(max_length=253),
+) -> Response:
+    """Voor de reverse proxy (Caddy on-demand TLS): mag voor dit domein een
+    certificaat worden aangevraagd? Alleen het basisdomein en bestaande klanten."""
+    domain = domain.strip().lower().rstrip(".")
+    if domain == settings.base_domain.lower():
+        return Response(status_code=status.HTTP_200_OK)
+    slug = slug_from_host(domain, settings.base_domain)
+    db = getattr(request.app.state, "db", None)
+    if slug and db is not None:
+        tenant = await accounts.get_tenant_by_slug(db, slug)
+        if tenant is not None and tenant.status == "active":
+            return Response(status_code=status.HTTP_200_OK)
+    return Response(status_code=status.HTTP_404_NOT_FOUND)
 
 
 @router.get("/tenant", response_model=TenantOut)

@@ -43,7 +43,8 @@ spec:
 
           envFrom:
             - configMapRef: { name: hub-config }
-            # Verplicht: HUB_DATABASE_URL en HUB_JWT_PRIVATE_KEY (zie docs/architecture.md).
+            # Verplicht: HUB_DATABASE_URL (postgres-service van de hub), HUB_REDIS_URL en
+            # HUB_JWT_PRIVATE_KEY (zie docs/security.md).
             - secretRef: { name: hub-secrets }
           readinessProbe:
             httpGet: { path: /health, port: http }

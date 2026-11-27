@@ -85,7 +85,7 @@ Volledige handleiding: [docs/apps.md](docs/apps.md).
 
 ## Containers
 
-Alle images zijn gehardend (Chainguard: geen shell, niet-root). Bouwen:
+Alle images zijn gehardend (Alpine, zonder shell en apk, niet-root). Bouwen:
 
 ```bash
 uv run python scripts/images.py build

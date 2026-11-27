@@ -5,6 +5,7 @@ beide manieren van draaien dezelfde services hebben en aan de basisregels voldoe
 """
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -87,12 +88,47 @@ def test_every_deployment_has_service_hpa_and_pdb(name):
     assert name in by_kind("PodDisruptionBudget")
 
 
-def test_services_select_existing_deployments():
-    deployments = by_kind("Deployment")
+def test_services_select_existing_workloads():
+    workloads = {**by_kind("Deployment"), **by_kind("StatefulSet")}
     for name, service in by_kind("Service").items():
         selector = service["spec"]["selector"]
-        labels = deployments[name]["spec"]["template"]["metadata"]["labels"]
+        labels = workloads[name]["spec"]["template"]["metadata"]["labels"]
         assert selector.items() <= labels.items(), name
+
+
+STATEFULSETS = sorted(by_kind("StatefulSet"))
+
+
+def test_postgres_and_redis_are_part_of_the_hub():
+    assert {"postgres", "redis"} <= set(STATEFULSETS)
+
+
+@pytest.mark.parametrize("name", STATEFULSETS)
+def test_statefulset_is_hardened_and_persistent(name):
+    spec = by_kind("StatefulSet")[name]["spec"]
+    pod = spec["template"]["spec"]
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["automountServiceAccountToken"] is False
+    assert spec["volumeClaimTemplates"], "data moet op een persistent volume staan"
+    for container in pod["containers"]:
+        assert ":latest" not in container["image"] and "alpine" in container["image"]
+        assert container["securityContext"]["readOnlyRootFilesystem"] is True
+        assert container["securityContext"]["capabilities"]["drop"] == ["ALL"]
+        assert "readinessProbe" in container
+
+
+def test_network_policies_default_deny():
+    policies = by_kind("NetworkPolicy")
+    deny = policies["default-deny-ingress"]["spec"]
+    assert deny["podSelector"] == {} and deny["policyTypes"] == ["Ingress"]
+    assert "ingress" not in deny
+
+
+def test_database_only_reachable_from_core():
+    policy = by_kind("NetworkPolicy")["postgres-from-core"]["spec"]
+    sources = [f["podSelector"]["matchLabels"] for f in policy["ingress"][0]["from"]]
+    assert sources == [{"app.kubernetes.io/name": "core"}]
+    assert policy["egress"] == []
 
 
 def test_ingress_only_exposes_gateway():
@@ -106,9 +142,9 @@ def test_ingress_only_exposes_gateway():
 
 
 def test_compose_and_kubernetes_have_same_services():
-    infra = {"postgres", "redis"}  # in Kubernetes extern (managed of operator)
-    compose_services = set(compose()["services"]) - infra
-    assert compose_services == set(DEPLOYMENTS)
+    # De publieke proxy is in Kubernetes de Ingress-controller.
+    compose_services = set(compose()["services"]) - {"proxy"}
+    assert compose_services == set(DEPLOYMENTS) | set(STATEFULSETS)
 
 
 def test_app_services_follow_naming_convention():
@@ -135,9 +171,12 @@ def test_hub_apps_point_to_known_services():
 
 def test_compose_services_are_hardened():
     for name, service in compose()["services"].items():
-        if name in {"postgres", "redis"}:
-            assert service["image"].startswith("cgr.dev/chainguard/"), name
-            continue
+        assert (
+            ":latest" not in service["image"]
+            and "alpine" in service["image"]
+            or (service["image"].startswith("mywork-hub-"))
+        ), name
+        assert service.get("user") or "build" in service, f"{name}: niet als root draaien"
         assert service.get("read_only") is True, name
         assert service.get("cap_drop") == ["ALL"], name
         assert "no-new-privileges:true" in service.get("security_opt", []), name
@@ -149,6 +188,7 @@ def test_dockerfiles_use_hardened_base_images():
         ROOT / "gateway" / "Dockerfile",
         ROOT / "web" / "Dockerfile",
     ]
+    dockerfiles.append(ROOT / "proxy" / "Dockerfile")
     for dockerfile in dockerfiles:
         text = dockerfile.read_text()
         base_args = [
@@ -156,6 +196,52 @@ def test_dockerfiles_use_hardened_base_images():
         ]
         assert base_args, dockerfile
         for line in base_args:
-            assert "=cgr.dev/chainguard/" in line, f"{dockerfile}: {line}"
+            image = line.split("=", 1)[1]
+            assert "alpine" in image and ":latest" not in image, f"{dockerfile}: {line}"
         assert "USER 65532" in text, dockerfile
+        # Draaifase gehardend: package manager en shell verwijderd.
+        final_stage = text.rsplit("\nFROM ", 1)[1]
+        assert "rm -rf /sbin/apk" in final_stage, dockerfile
+        assert "rm -f /bin/busybox /bin/sh" in final_stage, dockerfile
         assert "ENTRYPOINT [" in text, f"{dockerfile}: exec-vorm nodig (geen shell in image)"
+
+
+# --- Netwerken, poorten en firewall ---------------------------------------------------
+
+
+def published_ports() -> dict[str, list[str]]:
+    return {n: s["ports"] for n, s in compose()["services"].items() if s.get("ports")}
+
+
+def test_only_proxy_publishes_ports():
+    assert list(published_ports()) == ["proxy"]
+    assert sorted(published_ports()["proxy"]) == ["443:443", "443:443/udp", "80:80"]
+
+
+def test_internal_networks_have_no_internet():
+    networks = compose()["networks"]
+    assert networks["internal"]["internal"] is True
+    assert networks["data"]["internal"] is True
+
+
+def test_data_services_only_on_data_network():
+    services = compose()["services"]
+    for name in ("postgres", "redis"):
+        assert services[name]["networks"] == ["data"], name
+    on_data = {n for n, s in services.items() if "data" in s.get("networks", [])}
+    assert on_data <= {"postgres", "redis", "core", "assistant"}
+
+
+def test_apps_cannot_reach_internet_or_data():
+    for name, service in compose()["services"].items():
+        if name.startswith("app-"):
+            assert service["networks"] == ["internal"], name
+
+
+def test_firewall_opens_exactly_the_published_ports():
+    text = (ROOT / "deploy" / "firewall" / "nftables.conf").read_text()
+    assert re.search(r"set open_tcp \{[^}]*elements = \{ 80, 443 \}", text)
+    assert re.search(r"set open_udp \{[^}]*elements = \{ 443 \}", text)
+    assert "policy drop" in text
+    rules = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert "flush ruleset" not in rules, "mag de regels van Docker niet wissen"

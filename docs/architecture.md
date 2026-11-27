@@ -285,7 +285,7 @@ Gekozen ontwerp: **variant B — app-dock bovenin** (zie de mockups).
 
 Beide gebruiken dezelfde images: `mywork-hub-gateway`, `mywork-hub-core`,
 `mywork-hub-app-<id>` en `mywork-hub-web`. Alle images zijn **gehardend**: gebouwd op
-Chainguard-images (geen shell, niet-root uid 65532, read-only bestandssysteem). Details,
+Alpine Linux (vaste versies; geen shell en apk, niet-root uid 65532, read-only bestandssysteem). Details,
 bouwen en publiceren: [containers.md](containers.md).
 
 | | Docker Compose | Kubernetes |
@@ -431,14 +431,14 @@ mywork-hub/
 │   │   ├── pages/                     Inloggen, Start, Gebruikers, Thema
 │   │   ├── styles.css                 Alleen --mw-*-variabelen
 │   │   └── __tests__/                 Frontend-tests (Vitest)
-│   ├── nginx.conf / Dockerfile        Chainguard nginx, poort 8080, uid 65532
+│   ├── nginx.conf / Dockerfile        nginx (Alpine), poort 8080, uid 65532
 │   └── vite.config.ts / vitest.config.ts
 ├── gateway/
 │   ├── nginx.conf                     Routering (Docker en Kubernetes)
 │   ├── env.conf                       DNS-instellingen voor Docker (Kubernetes: ConfigMap)
-│   └── Dockerfile                     Chainguard nginx
+│   └── Dockerfile                     nginx (Alpine), gehardend
 ├── docker/
-│   ├── python-service.Dockerfile      Gedeelde Dockerfile voor core en apps (Chainguard python)
+│   ├── python-service.Dockerfile      Gedeelde Dockerfile voor core, assistent en apps (Python, Alpine)
 │   └── empty/                         Lege map voor services zonder manifest
 ├── deploy/
 │   └── kubernetes/

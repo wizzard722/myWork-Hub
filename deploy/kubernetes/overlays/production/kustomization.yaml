@@ -28,7 +28,12 @@ patches:
       - op: replace
         path: /data/HUB_PUBLIC_URL
         value: https://hub.example.com
-# Geheimen (niet in git): maak het Secret met
+# Geheimen (niet in git). PostgreSQL en Redis draaien in de hub (base/data.yaml):
+#   kubectl -n mywork-hub create secret generic hub-data \
+#     --from-literal=POSTGRES_PASSWORD="$PG_PW" --from-literal=REDIS_PASSWORD="$REDIS_PW"
 #   kubectl -n mywork-hub create secret generic hub-secrets \
-#     --from-literal=HUB_DATABASE_URL='postgresql+asyncpg://...' \
+#     --from-literal=HUB_DATABASE_URL="postgresql+asyncpg://mywork:$PG_PW@postgres:5432/mywork" \
+#     --from-literal=HUB_REDIS_URL="redis://:$REDIS_PW@redis:6379/0" \
 #     --from-file=HUB_JWT_PRIVATE_KEY=jwt-key.pem
+#   kubectl -n mywork-hub create secret generic hub-llm \
+#     --from-literal=ANTHROPIC_API_KEY="..."            # optioneel, voor de assistent
