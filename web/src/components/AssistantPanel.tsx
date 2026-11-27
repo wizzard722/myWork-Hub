@@ -23,7 +23,7 @@ function summary(input: Record<string, unknown>): string {
 
 /** Assistent-paneel: een taalmodel dat apps bedient binnen de rechten van de gebruiker.
  *  Wijzigende acties worden pas uitgevoerd na bevestiging. */
-export function AssistantPanel({ onClose }: { onClose: () => void }) {
+export function AssistantPanel() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [pending, setPending] = useState<AssistantAction[]>([]);
   const [conversation, setConversation] = useState<string | undefined>();
@@ -82,15 +82,7 @@ export function AssistantPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <aside className="assistant" aria-label="Assistent">
-      <header className="assistant-head">
-        <strong>
-          <Icon name="sparkle" size={18} /> Assistent
-        </strong>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Assistent sluiten">
-          <Icon name="close" />
-        </button>
-      </header>
+    <div className="assistant" aria-label="Assistent">
       <div className="assistant-log" aria-live="polite">
         {entries.length === 0 && (
           <p className="muted small">
@@ -164,6 +156,6 @@ export function AssistantPanel({ onClose }: { onClose: () => void }) {
           <Icon name="send" />
         </button>
       </form>
-    </aside>
+    </div>
   );
 }

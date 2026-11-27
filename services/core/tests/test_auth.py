@@ -163,3 +163,22 @@ def test_tls_ask_only_for_known_tenants(client):
     assert client.get("/tls/ask?domain=onbekend.hub.test").status_code == 404
     assert client.get("/tls/ask?domain=www.hub.test").status_code == 404
     assert client.get("/tls/ask?domain=evil.example.com").status_code == 404
+
+
+def test_preferences(client):
+    session = signup(client, "acme")
+    assert session["user"]["preferences"] == {
+        "taskbar_position": "bottom",
+        "taskbar_autohide": True,
+    }
+    saved = client.put(
+        "/me/preferences",
+        json={"taskbar_position": "left", "taskbar_autohide": False},
+        headers=auth(session),
+    )
+    assert saved.status_code == 200
+    assert (
+        client.get("/me", headers=auth(session)).json()["preferences"]["taskbar_position"] == "left"
+    )
+    bad = client.put("/me/preferences", json={"taskbar_position": "midden"}, headers=auth(session))
+    assert bad.status_code == 422

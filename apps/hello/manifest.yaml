@@ -9,6 +9,8 @@ publishes:
   - name: hello.greeted
     description: Er is iemand begroet.
 subscribes: []
+# Eigen scherm; de hub opent dit in een venster.
+ui: /ui
 # Handelingen die de assistent namens de gebruiker mag uitvoeren (zie docs/apps.md).
 tools:
   - name: greet

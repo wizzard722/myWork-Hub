@@ -191,7 +191,27 @@ verkeerde namen geven een fout bij het starten. De core leest het manifest via
   versturen die in `publishes` staan.
 - **Nooit** rechtstreeks in de database van een andere app.
 
-## 7. Frontend en theming
+## 7. Frontend, vensters en theming
+
+### Eigen scherm in een venster
+
+Zet in het manifest `ui: /ui` (pad binnen de app). De hub opent dat scherm in een venster
+(iframe op hetzelfde domein: `/api/apps/<id>/ui`). Na het laden stuurt de hub het
+toegangstoken van de gebruiker:
+
+```js
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin || event.data?.type !== "mywork:token") return;
+  const token = event.data.token;   // gebruiken als Authorization: Bearer <token>
+});
+```
+
+- Geen inline `<script>` of `style`-attributen met scripts: de Content-Security-Policy staat
+  alleen bestanden van hetzelfde domein toe (zie `apps/hello`).
+- Gebruik relatieve paden (`ui/app.js`, `whoami`): de app staat achter `/api/apps/<id>/`.
+- Het scherm moet op elke venstergrootte werken (ook een kwart van het scherm en telefoon).
+
+### Theming
 
 Het thema komt altijd uit de core. Een app-frontend:
 

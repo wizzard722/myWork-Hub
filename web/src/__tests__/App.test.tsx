@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { setAccessToken } from "../api";
@@ -57,6 +57,7 @@ const loggedIn = (user = owner) => ({
 
 beforeEach(() => {
   window.location.hash = "";
+  window.localStorage.clear();
   setAccessToken(null);
 });
 
@@ -105,38 +106,104 @@ describe("inloggen", () => {
     mockApi({ ...loggedIn(), "POST /auth/logout": () => ({ status: 204 }) });
     render(<App />);
     expect(await screen.findByText(/, Jan$/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Uitloggen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Account" }));
+    fireEvent.click(screen.getByRole("button", { name: /Uitloggen/ }));
     expect(await screen.findByRole("heading", { name: "Inloggen" })).toBeTruthy();
   });
 });
 
-describe("hub (variant B)", () => {
-  it("toont apps in dock en tegels, met status", async () => {
+describe("bureaublad en vensters", () => {
+  const taskbar = () => screen.getByRole("navigation", { name: "Startbalk" });
+
+  it("toont apps als tegels met status; een tegel opent een venster", async () => {
     mockApi(loggedIn());
     render(<App />);
-    const dock = await screen.findByRole("navigation", { name: "Apps" });
-    await waitFor(() => expect(dock.textContent).toContain("Hello"));
-    expect(dock.textContent).not.toContain("files"); // niet bereikbaar: niet in dock
-    expect(screen.getByText("Niet bereikbaar")).toBeTruthy();
-    expect(screen.getByText("Acme Portaal")).toBeTruthy();
+    expect(await screen.findByText("Niet bereikbaar")).toBeTruthy();
+    await waitFor(() => expect(document.title).toBe("Acme Portaal"));
+    fireEvent.click(await screen.findByRole("button", { name: /Hello/ }));
+    const win = await screen.findByRole("dialog", { name: "Hello" });
+    expect(win.textContent).toContain("Voorbeeld");
+    expect(within(taskbar()).getByRole("listitem", { name: "Hello" })).toBeTruthy();
   });
 
-  it("zoeken filtert de apps", async () => {
-    mockApi(loggedIn());
-    render(<App />);
-    await screen.findByText("Voorbeeld");
-    fireEvent.change(screen.getByPlaceholderText("Zoek een app…"), { target: { value: "xyz" } });
-    expect(screen.getByText("Geen apps gevonden.")).toBeTruthy();
-  });
-
-  it("beheer alleen zichtbaar voor beheerders", async () => {
+  it("startmenu: beheer alleen voor beheerders", async () => {
     mockApi(loggedIn(member));
     render(<App />);
-    const dock = await screen.findByRole("navigation", { name: "Apps" });
-    expect(dock.textContent).not.toContain("Beheer");
-    window.location.hash = "#/beheer/gebruikers";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-    expect(screen.queryByRole("heading", { name: "Gebruikers" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    const menu = screen.getByRole("dialog", { name: "Startmenu" });
+    await waitFor(() => expect(menu.textContent).toContain("Hello"));
+    expect(menu.textContent).not.toContain("Gebruikers");
+    expect(menu.textContent).not.toContain("Auditlog");
+  });
+
+  it("startmenu opent beheer in een venster; meerdere vensters tegelijk", async () => {
+    mockApi({ ...loggedIn(), "GET /users": [owner, member], "GET /audit": { items: [], next_before_id: null } });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gebruikers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Auditlog" }));
+    expect(await screen.findByRole("dialog", { name: "Gebruikers" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Auditlog" })).toBeTruthy();
+    expect(await screen.findByText("lid@acme.nl")).toBeTruthy();
+  });
+
+  it("minimaliseren, terughalen via de startbalk en sluiten", async () => {
+    mockApi({ ...loggedIn(), "GET /users": [owner] });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gebruikers" }));
+    const win = await screen.findByRole("dialog", { name: "Gebruikers" });
+    fireEvent.click(within(win).getByRole("button", { name: "Minimaliseren" }));
+    expect(screen.queryByRole("dialog", { name: "Gebruikers" })).toBeNull();
+    fireEvent.click(within(taskbar()).getByRole("listitem", { name: "Gebruikers" }));
+    const back = await screen.findByRole("dialog", { name: "Gebruikers" });
+    fireEvent.click(within(back).getByRole("button", { name: "Sluiten" }));
+    expect(screen.queryByRole("dialog", { name: "Gebruikers" })).toBeNull();
+    expect(within(taskbar()).queryByRole("listitem", { name: "Gebruikers" })).toBeNull();
+  });
+
+  it("snap via het indelingsmenu: vier kwarten", async () => {
+    mockApi({ ...loggedIn(), "GET /users": [owner] });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gebruikers" }));
+    const win = await screen.findByRole("dialog", { name: "Gebruikers" });
+    fireEvent.click(within(win).getByRole("button", { name: "Indeling kiezen" }));
+    fireEvent.click(within(win).getByRole("menuitem", { name: "Vier kwarten: rechtsonder" }));
+    expect(win.className).toContain("snapped");
+    expect(win.style.left).toBe(`${Math.round(window.innerWidth / 2)}px`);
+    expect(win.style.top).toBe(`${Math.round(window.innerHeight / 2)}px`);
+  });
+
+  it("startbalk verbergt automatisch en komt terug bij de rand", async () => {
+    mockApi(loggedIn());
+    render(<App />);
+    await screen.findByText("Je apps");
+    expect(taskbar().className).toContain("hidden");
+    fireEvent.mouseMove(window, { clientX: 400, clientY: window.innerHeight - 5 });
+    await waitFor(() => expect(taskbar().className).toContain("shown"));
+  });
+
+  it("startbalk verplaatsen naar links wordt opgeslagen", async () => {
+    mockApi({ ...loggedIn(), "PUT /me/preferences": (init: RequestInit) => ({ status: 200, body: JSON.parse(init.body as string) }) });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(taskbar().dataset.position).toBe("left");
+    const put = calls.find((c) => c.method === "PUT" && c.url.endsWith("/me/preferences"))!;
+    expect(JSON.parse(put.body!)).toEqual({ taskbar_position: "left", taskbar_autohide: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Automatisch verbergen" }));
+    expect(taskbar().className).toContain("shown");
+  });
+
+  it("voorkeuren van de gebruiker worden bij inloggen toegepast", async () => {
+    const withPrefs = { ...owner, preferences: { taskbar_position: "right", taskbar_autohide: false } };
+    mockApi({ ...loggedIn(), "POST /auth/refresh": session(withPrefs as typeof owner) });
+    render(<App />);
+    await screen.findByText("Je apps");
+    expect(taskbar().dataset.position).toBe("right");
+    expect(taskbar().className).toContain("shown");
   });
 });
 

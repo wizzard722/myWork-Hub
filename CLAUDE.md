@@ -26,7 +26,8 @@
 - Theming komt alleen uit de core; frontends gebruiken uitsluitend `--mw-*`-variabelen.
 - Klantdata altijd met `tenant_id` en via `db.tenant_session(...)`; `system_session()`
   alleen waar klantoverstijgend echt nodig is (inloggen, aanmelden, CLI).
-- De web-schil volgt ontwerp-variant B (app-dock bovenin).
+- De web-schil is een bureaublad met windowmanager (vensters, snap, verplaatsbare
+  startbalk); logica in `web/src/wm/geometry.ts` en `windows.ts` met eigen tests.
 - Docker Compose en Kubernetes blijven gelijk: een service die in de een wordt
   toegevoegd, komt ook in de ander (bewaakt door `tests/deploy/`).
 

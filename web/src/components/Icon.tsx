@@ -14,6 +14,11 @@ const paths = {
   sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z",
   send: "M22 2 11 13M22 2l-7 20-4-9-9-4z",
   close: "M18 6 6 18M6 6l12 12",
+  layout: "M3 3h8v18H3zM13 3h8v8h-8zM13 13h8v8h-8z",
+  minimize: "M5 12h14",
+  maximize: "M4 4h16v16H4z",
+  restore: "M8 8h12v12H8zM4 16V4h12",
+  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1",
 } as const;
 
 export type IconName = keyof typeof paths;

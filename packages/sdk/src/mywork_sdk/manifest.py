@@ -70,6 +70,8 @@ class AppManifest(BaseModel):
     subscribes: list[str] = Field(default_factory=list)
     # Handelingen die de LLM-assistent namens de gebruiker mag uitvoeren.
     tools: list[ToolSpec] = Field(default_factory=list)
+    # Pad van de eigen gebruikersinterface; de hub laadt die in een venster.
+    ui: str | None = Field(default=None, pattern=r"^/[A-Za-z0-9_\-/.]*$")
 
 
 def load_manifest(path: str | Path) -> AppManifest:

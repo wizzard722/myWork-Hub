@@ -18,6 +18,15 @@ class TenantOut(BaseModel):
     name: str
 
 
+class Preferences(BaseModel):
+    """Persoonlijke voorkeuren voor de werkplek (web-schil)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    taskbar_position: Literal["bottom", "top", "left", "right"] = "bottom"
+    taskbar_autohide: bool = True
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,6 +37,7 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: datetime
     last_login_at: datetime | None = None
+    preferences: Preferences = Field(default_factory=Preferences)
 
 
 class SessionOut(BaseModel):

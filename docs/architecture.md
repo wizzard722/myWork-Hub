@@ -239,6 +239,7 @@ docker compose run --rm --entrypoint python core -m core.cli generate-key
 | --- | --- | --- |
 | `POST /auth/login`, `/auth/refresh`, `/auth/logout` | iedereen | Inloggen en sessies |
 | `GET`/`PATCH /me`, `POST /me/password` | ingelogd | Eigen account |
+| `PUT /me/preferences` | ingelogd | Voorkeuren (startbalk: positie, automatisch verbergen) |
 | `GET /tenant/public` | iedereen | Klantnaam voor het inlogscherm |
 | `GET /tenant`, `PATCH /tenant` | ingelogd / eigenaar | Eigen klant |
 | `POST /signup` | iedereen (als aan) | Nieuwe klant met eigenaar |
@@ -273,18 +274,36 @@ alleen als hex-waarde geaccepteerd; logo- en favicon-adressen alleen als `https:
 pad op dezelfde site; lettertypen en maten worden gevalideerd. Klantinvoer kan zo geen
 eigen CSS of scripts injecteren.
 
-## 6a. Web-schil (variant B)
+## 6a. Web-schil: bureaublad met windowmanager
 
-Gekozen ontwerp: **variant B — app-dock bovenin** (zie de mockups).
+De web-schil is een bureaublad zoals Windows (uitgewerkt vanuit ontwerp-variant B):
 
-- Inlogscherm met logo en naam van de klant (uit het subdomein).
-- Bovenbalk in de hoofdkleur met merk, dock (Start, de bereikbare apps, Beheer voor
-  beheerders) en account/uitloggen. Op een telefoon komt de dock op een eigen regel.
-- Start: begroeting, zoekveld (filtert apps) en app-tegels met status.
-- Beheer: gebruikers (toevoegen, rol, in-/uitschakelen, verwijderen), thema
-  (naam, logo, kleuren) en auditlog (filters, integriteitscontrole, CSV-export).
-- Routering via de hash (`#/`, `#/beheer/gebruikers`, `#/beheer/thema`, `#/apps/<id>`).
-  App-schermen inladen volgt in fase 5.
+- **Vensters:** apps en onderdelen (Gebruikers, Thema, Auditlog, Assistent, elke app)
+  openen in vensters die naast elkaar draaien: verplaatsen, schalen, minimaliseren,
+  maximaliseren (ook dubbelklik op de titelbalk), sluiten.
+- **Snap:** venster naar de linker- of rechterrand slepen = helft, naar een hoek = kwart,
+  naar de bovenrand = volledig scherm; een voorbeeldvlak toont waar het venster komt.
+  Via de knop **Indeling** in de titelbalk: twee naast elkaar, boven/onder, **vier
+  kwarten**, één groot + twee klein, volledig. Toetsenbord: Ctrl+Alt+pijltjes.
+  Losslepen zet het venster terug op de oude grootte.
+- **Startbalk:** standaard onder, **automatisch verbergen** (op een randje van 4 px na);
+  komt omhoog zodra de muis de rand nadert of erover beweegt, en bij toetsenbordfocus.
+  Te verplaatsen naar **onder, boven, links of rechts** (Account-menu). Bevat: Start
+  (menu met zoeken, apps en beheer), knoppen van open vensters (klik = naar voren /
+  minimaliseren), assistent, klok en account (startbalk-instellingen, uitloggen).
+- **Voorkeuren** (positie, automatisch verbergen) staan per gebruiker op de server
+  (`PUT /api/core/me/preferences`) en gelden dus op elk apparaat; de vensterindeling
+  wordt per gebruiker in de browser onthouden.
+- **Bureaublad:** begroeting, zoekveld en app-tegels; een tegel opent de app in een venster.
+- **Apps in vensters:** heeft een app in zijn manifest een `ui`-pad, dan laadt de hub
+  dat scherm in het venster (iframe, zelfde domein) en geeft het toegangstoken door via
+  `postMessage` (zie `docs/apps.md`). Anders toont het venster een beschrijving.
+- **Telefoon** (smaller dan 720 px): vensters schermvullend, startbalk vast onder.
+- Code: `web/src/wm/` (`geometry.ts` en `windows.ts` zijn pure logica met eigen tests).
+
+| Vier kwarten | Slepen naar de rand (snap) | Startbalk links |
+| --- | --- | --- |
+| ![Vier kwarten](screenshots/vensters-vier-kwarten.png) | ![Snap](screenshots/vensters-snap-slepen.png) | ![Startbalk links](screenshots/startbalk-links.png) |
 
 | Auditlog | Assistent (vraagt bevestiging) |
 | --- | --- |
@@ -348,6 +367,7 @@ Alle tests staan in de repository en draaien in CI (`.github/workflows/ci.yml`).
 | Assistent | `services/assistant/tests/` | Tools binnen de rol, gebruikerstoken doorgegeven, bevestiging vóór wijzigen, weigeren, onbekende tool/ongeldige invoer niet uitgevoerd, privacy van conversaties, auditregels, stap-limiet, verzoek aan de Anthropic API (nagebootst) | `uv run pytest` |
 | SDK — inloggen | `packages/sdk/tests/test_auth.py`, `test_tools.py` | Tokencontrole via JWKS (sleutel, verloop, audience, rol), rollen, tool-specificaties | `uv run pytest` |
 | Productie-compose | `tests/templates/test_images.py` | `docker-compose.prod.yml` actueel, alle images, geen build, verplichte geheimen | `uv run pytest` |
+| Windowmanager | `web/src/__tests__/wm.test.ts` | Snap-zones (helften, kwarten), randdetectie, startbalk aan vier zijden, vensters openen/focus/minimaliseren/snap/terugzetten | `cd web && npm test` |
 | Frontend | `web/src/__tests__/` | Inloggen, sessie hervatten, uitloggen, dock en tegels, rollen, gebruikers- en themabeheer, CSS-volgorde | `cd web && npm test` |
 | Kubernetes-schema | CI-job `kubernetes` | Kustomize renderen + kubeconform | alleen CI |
 | Images | CI-job `docker` | uid 65532 en geen shell in elk image | alleen CI |
@@ -465,7 +485,9 @@ mywork-hub/
 │   │   ├── api.ts                     Aanroepen naar de core (token in geheugen, refresh)
 │   │   ├── auth/AuthProvider.tsx      Inlogstatus, sessie hervatten, uitloggen
 │   │   ├── theme/ThemeProvider.tsx    Thema van de klant (naam, logo, favicon, theme.css)
-│   │   ├── components/                Shell (variant B), AssistantPanel, Icon, hash-routering
+│   │   ├── components/                AssistantPanel, Icon
+│   │   ├── wm/                        Windowmanager: Desktop, WindowFrame, Taskbar, AppWindow,
+│   │   │                              geometry.ts (snap-zones), windows.ts (venstertoestand)
 │   │   ├── pages/                     Inloggen, Start, Gebruikers, Thema, Auditlog
 │   │   ├── styles.css                 Alleen --mw-*-variabelen
 │   │   └── __tests__/                 Frontend-tests (Vitest)

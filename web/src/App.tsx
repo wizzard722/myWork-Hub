@@ -1,18 +1,30 @@
 import { useEffect, useState } from "react";
 import { api, type AppStatus, type Session } from "./api";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
-import { Shell } from "./components/Shell";
-import { useHashRoute } from "./components/useHashRoute";
-import { AdminNav } from "./pages/AdminNav";
+import { AssistantPanel } from "./components/AssistantPanel";
 import { AuditPage } from "./pages/AuditPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { ThemePage } from "./pages/ThemePage";
 import { UsersPage } from "./pages/UsersPage";
 import { ThemeProvider } from "./theme/ThemeProvider";
+import { AppWindow } from "./wm/AppWindow";
+import { Desktop, type WindowKind } from "./wm/Desktop";
+
+const ITEMS: WindowKind[] = [
+  { kind: "beheer:gebruikers", title: "Gebruikers", icon: "users", single: true },
+  { kind: "beheer:thema", title: "Thema", icon: "palette", single: true },
+  { kind: "beheer:audit", title: "Auditlog", icon: "log", single: true },
+  { kind: "assistant", title: "Assistent", icon: "sparkle", single: true },
+];
+
+const DEEP_LINKS: Record<string, string> = {
+  "/beheer/gebruikers": "beheer:gebruikers",
+  "/beheer/thema": "beheer:thema",
+  "/beheer/audit": "beheer:audit",
+};
 
 function Hub({ session }: { session: Session }) {
-  const route = useHashRoute();
   const [apps, setApps] = useState<AppStatus[] | null>(null);
   const [appsError, setAppsError] = useState<string | null>(null);
   const isAdmin = session.user.role !== "member";
@@ -24,39 +36,28 @@ function Hub({ session }: { session: Session }) {
       .catch((e: Error) => setAppsError(e.message));
   }, []);
 
-  let page;
-  if (route.startsWith("/beheer") && isAdmin) {
-    page = (
-      <>
-        <AdminNav route={route} />
-        {route === "/beheer/thema" ? (
-          <ThemePage />
-        ) : route === "/beheer/audit" ? (
-          <AuditPage />
-        ) : (
-          <UsersPage session={session} />
-        )}
-      </>
-    );
-  } else if (route.startsWith("/apps/")) {
-    const app = apps?.find((a) => `/apps/${a.id}` === route);
-    page = (
-      <section className="section">
-        <h1>{app?.manifest?.name ?? "App"}</h1>
-        <p className="muted">
-          Het inladen van app-schermen in de hub volgt in fase 5. De API van deze app staat op{" "}
-          <a href={`/api/apps/${app?.id ?? ""}/docs`}>/api/apps/{app?.id}/docs</a>.
-        </p>
-      </section>
-    );
-  } else {
-    page = <HomePage session={session} apps={apps} appsError={appsError} />;
+  const items = ITEMS.filter((i) => isAdmin || !i.kind.startsWith("beheer:"));
+  const deepLink = DEEP_LINKS[window.location.hash.replace(/^#/, "")];
+  const initial = items.find((i) => i.kind === deepLink);
+
+  function render(kind: string) {
+    if (kind === "beheer:gebruikers" && isAdmin) return <UsersPage session={session} />;
+    if (kind === "beheer:thema" && isAdmin) return <ThemePage />;
+    if (kind === "beheer:audit" && isAdmin) return <AuditPage />;
+    if (kind === "assistant") return <AssistantPanel />;
+    if (kind.startsWith("app:")) return <AppWindow app={apps?.find((a) => `app:${a.id}` === kind)} />;
+    return <p className="muted pad">Onbekend onderdeel.</p>;
   }
 
   return (
-    <Shell session={session} apps={apps ?? []} route={route}>
-      {page}
-    </Shell>
+    <Desktop
+      session={session}
+      apps={apps ?? []}
+      items={items}
+      render={render}
+      initial={initial}
+      background={<HomePage session={session} apps={apps} appsError={appsError} />}
+    />
   );
 }
 

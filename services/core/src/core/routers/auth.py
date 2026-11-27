@@ -13,6 +13,7 @@ from core.routers.schemas import (
     LoginIn,
     MeUpdate,
     PasswordChange,
+    Preferences,
     SessionOut,
     TenantOut,
     UserOut,
@@ -154,3 +155,16 @@ async def change_password(
         db, principal, body.current_password, body.new_password, RequestInfo.from_request(request)
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/me/preferences", response_model=Preferences)
+async def save_preferences(body: Preferences, principal: PrincipalDep, db: DbDep) -> Preferences:
+    """Eigen voorkeuren opslaan (geen beheerhandeling, dus niet in het auditlog)."""
+    from core.models import User
+
+    async with db.tenant_session(principal.tenant_id) as session:
+        user = await session.get(User, principal.user_id, with_for_update=True)
+        if user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account bestaat niet meer")
+        user.preferences = body.model_dump()
+    return body

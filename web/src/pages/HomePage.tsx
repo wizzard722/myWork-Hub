@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { AppStatus, Session } from "../api";
 import { Icon } from "../components/Icon";
+import { useDesktop } from "../wm/Desktop";
 
 const statusLabel: Record<AppStatus["status"], string> = {
   ok: "Beschikbaar",
@@ -26,6 +27,7 @@ export function HomePage({
   appsError: string | null;
 }) {
   const [query, setQuery] = useState("");
+  const desktop = useDesktop();
   const firstName = session.user.display_name.split(" ")[0];
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -70,14 +72,21 @@ export function HomePage({
         <ul className="tiles">
           {visible.map((app) => (
             <li key={app.id}>
-              <a className="tile" href={`#/apps/${app.id}`}>
+              <button
+                type="button"
+                className="tile"
+                disabled={app.status !== "ok"}
+                onClick={() =>
+                  desktop.open({ kind: `app:${app.id}`, title: app.manifest?.name ?? app.id, icon: "grid" })
+                }
+              >
                 <span className="tile-icon" aria-hidden="true">
                   {(app.manifest?.name ?? app.id).slice(0, 1).toUpperCase()}
                 </span>
                 <strong>{app.manifest?.name ?? app.id}</strong>
                 <span className="muted small">{app.manifest?.description ?? app.error}</span>
                 <span className={`badge ${app.status}`}>{statusLabel[app.status]}</span>
-              </a>
+              </button>
             </li>
           ))}
         </ul>

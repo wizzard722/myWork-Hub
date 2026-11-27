@@ -18,6 +18,8 @@ export interface AppManifest {
   name: string;
   version: string;
   description: string;
+  /** Pad van de gebruikersinterface van de app (wordt in een venster geladen). */
+  ui?: string | null;
 }
 
 export interface AppStatus {
@@ -32,6 +34,13 @@ export interface Tenant {
   name: string;
 }
 
+export type TaskbarPosition = "bottom" | "top" | "left" | "right";
+
+export interface Preferences {
+  taskbar_position: TaskbarPosition;
+  taskbar_autohide: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -40,6 +49,7 @@ export interface User {
   is_active: boolean;
   created_at: string;
   last_login_at: string | null;
+  preferences?: Preferences;
 }
 
 export interface AuditEntry {
@@ -180,6 +190,10 @@ export const api = {
       accessToken = null;
     }
   },
+
+  savePreferences: (prefs: Preferences) =>
+    json<Preferences>("/me/preferences", { method: "PUT", body: body(prefs) }),
+  accessToken: () => accessToken,
 
   users: () => json<User[]>("/users"),
   createUser: (data: { email: string; display_name: string; password: string; role: Role }) =>

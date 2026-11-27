@@ -32,3 +32,11 @@ def test_manifest_declares_tools():
     tools = {t["name"]: t for t in client.get("/manifest").json()["tools"]}
     assert tools["greet"]["path"] == "/greetings/{name}"
     assert tools["whoami"]["method"] == "GET"
+
+
+def test_ui_is_served_without_inline_script():
+    assert client.get("/manifest").json()["ui"] == "/ui"
+    html = client.get("/ui").text
+    assert '<script src="ui/app.js"></script>' in html
+    assert "<script>" not in html  # CSP: geen inline scripts
+    assert client.get("/ui/app.js").headers["content-type"].startswith("text/javascript")
