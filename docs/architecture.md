@@ -11,7 +11,8 @@ Documentatie:
 | --- | --- |
 | `docs/architecture.md` | Dit document: keuzes, onderdelen, structuur, tests |
 | [`docs/apps.md`](apps.md) | Apps ontwikkelen: template, generator, manifest, checklist |
-| [`docs/containers.md`](containers.md) | Gehardende images, bouwen, scannen, publiceren |
+| [`docs/containers.md`](containers.md) | Gehardende images (Alpine), bouwen, scannen, publiceren |
+| [`docs/security.md`](security.md) | Reverse proxy, gateway, netwerken, firewall, auditlog, assistent |
 
 myWork-Hub is een SaaS-platform in de geest van Nextcloud Hub: één hub waarin klanten
 apps gebruiken (bestanden, agenda, taken, chat, …).
@@ -27,6 +28,9 @@ apps gebruiken (bestanden, agenda, taken, chat, …).
 | Theming | Centraal vanuit de **core**, per klant |
 | Techniek | Python 3.12 + FastAPI, React + TypeScript (Vite), PostgreSQL, Redis |
 | Draaien | **Docker Compose** (kleine installaties) én **Kubernetes** (schalen) — dezelfde images |
+| Containers | Alpine Linux met vaste versies, gehardend (geen shell/apk, niet-root) |
+| Data | PostgreSQL en Redis zijn onderdeel van de core hub (Compose én Kubernetes) |
+| Ingang | Reverse proxy (Caddy; in Kubernetes de Ingress-controller) vóór de gateway |
 
 ### Waarom losse services voor apps, maar één core?
 
@@ -295,7 +299,9 @@ bouwen en publiceren: [containers.md](containers.md).
 | Ingang | gateway op poort 8080 | Ingress → gateway |
 | Schalen | 1 container per service | HPA per service (CPU 70%), min. 2 replica's |
 | Beschikbaarheid | `restart: unless-stopped` | PodDisruptionBudget, rolling updates, spreiding over nodes |
-| PostgreSQL / Redis | Containers in de compose | Extern: managed dienst of operator (bijv. CloudNativePG) |
+| PostgreSQL / Redis | Services `postgres` en `redis` (netwerk `data`) | StatefulSets `postgres` en `redis` met persistent volume (`base/data.yaml`) |
+| Publieke ingang | `proxy` (Caddy, TLS, headers) op 80/443 | Ingress-controller |
+| Firewall | Gescheiden netwerken + host-firewall (nftables) | NetworkPolicies, standaard alles geweigerd |
 | Instellingen | `.env` | ConfigMap `hub-config`, Secret `hub-secrets` (verplicht: `HUB_DATABASE_URL`, `HUB_JWT_PRIVATE_KEY`) |
 | Subdomeinen | `http://<klant>.localhost:8080` | Ingress voor `hub.example.com` en `*.hub.example.com` (wildcard-certificaat nodig) |
 | DNS in gateway | `gateway/env.conf` (Docker-DNS, geen suffix) | ConfigMap `gateway-config` (kube-dns, suffix `.<namespace>.svc.cluster.local`) |
@@ -371,7 +377,7 @@ mywork-hub/
 ├── LICENSE
 ├── pyproject.toml                     uv-workspace, ruff- en pytest-instellingen
 ├── uv.lock                            Vastgezette Python-afhankelijkheden
-├── docker-compose.yml                 Hele hub op één machine (gehardende images)
+├── docker-compose.yml                 Hele hub op één machine, bouwt zelf (ontwikkeling/test)
 ├── .env.example                       Voorbeeldinstellingen voor Docker
 ├── .dockerignore / .gitignore
 ├── .github/workflows/
@@ -382,6 +388,7 @@ mywork-hub/
 │   ├── architecture.md                Dit document
 │   ├── screenshots/                   Schermafbeeldingen van de web-schil
 │   ├── apps.md                        Handleiding apps ontwikkelen
+│   ├── security.md                    Proxy, gateway, netwerken, firewall
 │   └── containers.md                  Gehardende containers, bouwen en publiceren
 ├── scripts/
 │   ├── new_app.py                     Nieuwe app maken uit de templates
@@ -433,8 +440,11 @@ mywork-hub/
 │   │   └── __tests__/                 Frontend-tests (Vitest)
 │   ├── nginx.conf / Dockerfile        nginx (Alpine), poort 8080, uid 65532
 │   └── vite.config.ts / vitest.config.ts
+├── proxy/
+│   ├── Caddyfile                      Publieke reverse proxy: TLS, headers, limieten
+│   └── Dockerfile                     Caddy (Alpine), gehardend
 ├── gateway/
-│   ├── nginx.conf                     Routering (Docker en Kubernetes)
+│   ├── nginx.conf                     Routering, rate limiting, echte client-IP
 │   ├── env.conf                       DNS-instellingen voor Docker (Kubernetes: ConfigMap)
 │   └── Dockerfile                     nginx (Alpine), gehardend
 ├── docker/
@@ -442,8 +452,10 @@ mywork-hub/
 │   └── empty/                         Lege map voor services zonder manifest
 ├── deploy/
 │   └── kubernetes/
-│       ├── base/                      Deployments, Services, HPA, PDB, Ingress, ConfigMaps
+│       ├── base/                      Deployments, StatefulSets (PostgreSQL, Redis), Services,
+│       │                              HPA, PDB, Ingress, ConfigMaps, NetworkPolicies
 │       └── overlays/production/       Namespace, images, domeinnaam
+│   └── firewall/nftables.conf         Host-firewall (alleen 80/443 en SSH)
 └── tests/
     ├── deploy/                        Tests op Docker- en Kubernetes-configuratie
     ├── integration/                   Integratietests: services en gateway
