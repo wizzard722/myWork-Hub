@@ -80,7 +80,7 @@ Workflow `.github/workflows/images.yml`:
 | Push naar `main` | ✅ | ✅ | tags `main`, `sha-<commit>` |
 | Tag `v1.2.3` | ✅ | ✅ | tags `1.2.3`, `1.2`, `latest` |
 
-- **Trivy** laat de build falen bij kwetsbaarheden met ernst HIGH of CRITICAL waarvoor
+- **Trivy** (als container `aquasec/trivy`) laat de build falen bij kwetsbaarheden met ernst HIGH of CRITICAL waarvoor
   een oplossing bestaat.
 - Gepubliceerde images krijgen een **SBOM** (lijst van alle onderdelen) en
   **herkomstgegevens** (provenance), zodat na te gaan is waaruit en hoe ze gebouwd zijn.
