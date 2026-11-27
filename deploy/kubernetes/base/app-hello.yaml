@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-hello
+  labels:
+    app.kubernetes.io/name: app-hello
+    app.kubernetes.io/component: app
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-hello
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app-hello
+        app.kubernetes.io/component: app
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: app-hello
+      containers:
+        - name: app-hello
+          image: mywork-hub-app-hello
+          ports:
+            - { name: http, containerPort: 8000 }
+          env:
+            - { name: ROOT_PATH, value: /api/apps/hello }
+            - { name: APP_MANIFEST, value: /app/manifest.yaml }
+          envFrom:
+            - configMapRef: { name: hub-config }
+            - secretRef: { name: hub-secrets, optional: true }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-hello
+  labels:
+    app.kubernetes.io/name: app-hello
+spec:
+  selector:
+    app.kubernetes.io/name: app-hello
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-hello
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: app-hello }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app-hello
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-hello

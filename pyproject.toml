@@ -26,5 +26,5 @@ known-first-party = ["mywork_sdk", "core", "hello"]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/sdk/tests", "services/core/tests", "apps/hello/tests"]
+testpaths = ["packages/sdk/tests", "services/core/tests", "apps/hello/tests", "tests"]
 addopts = "--import-mode=importlib"

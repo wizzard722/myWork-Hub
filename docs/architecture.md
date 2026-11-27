@@ -1,26 +1,51 @@
 # Architectuur van myWork-Hub
 
-myWork-Hub is een SaaS-platform in de geest van Nextcloud Hub: één hub waarin klanten
-apps gebruiken (bestanden, agenda, taken, chat, …). Dit document legt de basiskeuzes vast.
+> **Levend document.** Bij elke wijziging aan de structuur, een service, een app, de
+> deployment of de tests wordt dit bestand in dezelfde commit bijgewerkt.
+> Laatst bijgewerkt: fase 1 (projectopzet + Kubernetes + tests).
 
-## Uitgangspunten
+myWork-Hub is een SaaS-platform in de geest van Nextcloud Hub: één hub waarin klanten
+apps gebruiken (bestanden, agenda, taken, chat, …).
+
+## 1. Uitgangspunten
 
 | Keuze | Besluit |
 | --- | --- |
 | Doelgroep | SaaS voor klanten: meerdere klanten (tenants) op één installatie |
 | Apps | **Losse services**, elk in een eigen container |
+| Core | **Eén service** (modulair opgebouwd), niet opgeknipt in microservices |
 | Gegevensuitwisseling | Uitsluitend via API's en events, nooit via elkaars database |
 | Theming | Centraal vanuit de **core**, per klant |
 | Techniek | Python 3.12 + FastAPI, React + TypeScript (Vite), PostgreSQL, Redis |
-| Draaien | Docker Compose |
+| Draaien | **Docker Compose** (kleine installaties) én **Kubernetes** (schalen) — dezelfde images |
 
-## Onderdelen
+### Waarom losse services voor apps, maar één core?
+
+Volledig microservices ("alles los") is voor dit product te zwaar: veel bewegende delen,
+lastig debuggen en duur voor kleine installaties. Eén monoliet past weer niet bij
+apps die los ontwikkeld, uitgerold en geschaald moeten worden (ook door derden).
+
+Daarom de tussenvorm:
+
+- **Core = één service.** Klanten, gebruikers, rechten, app-register en theming horen
+  bij elkaar en veranderen samen. Intern netjes in modules; opsplitsen kan later als
+  één onderdeel echt apart moet schalen.
+- **Elke app = eigen service.** Eigen release-ritme, eigen database-schema, apart te
+  schalen (Bestanden heeft meer nodig dan Hello) en een fout in één app legt de rest
+  niet plat.
+- **Stateless services.** Geen sessies of bestanden lokaal in een container; status
+  staat in PostgreSQL, Redis of objectopslag. Daardoor kan Kubernetes elke service
+  vrij op- en afschalen.
+
+Voor kleine installaties draait precies hetzelfde met Docker Compose op één machine.
+
+## 2. Onderdelen
 
 ```
               Browser
                  │
-          ┌──────▼──────┐
-          │   gateway   │  nginx: enige publieke ingang (:8080)
+          ┌──────▼──────┐   Docker: poort 8080
+          │   gateway   │   Kubernetes: achter de Ingress
           └──┬───┬───┬──┘
    /api/core │   │   │ /api/apps/<id>         /
       ┌──────▼┐  │  ┌▼──────────┐       ┌────────┐
@@ -32,22 +57,22 @@ apps gebruiken (bestanden, agenda, taken, chat, …). Dit document legt de basis
    └──────┘      └────────┘
 ```
 
-- **gateway**: routeert `/api/core/*` naar de core, `/api/apps/<id>/*` naar de service
-  `app-<id>` en de rest naar de web-schil. Een nieuwe app vraagt geen gateway-wijziging:
-  de service-naam volgt uit de app-id.
+- **gateway** (nginx): routeert `/api/core/*` naar de core, `/api/apps/<id>/*` naar de
+  service `app-<id>` en de rest naar de web-schil. Een nieuwe app vraagt geen
+  gateway-wijziging: de servicenaam volgt uit de app-id. `/healthz` voor probes.
 - **core**: klanten, gebruikers, groepen, rollen, inloggen, app-register, theming,
   audit-log en meldingen.
-- **app-services**: elk een eigen FastAPI-service met eigen database-schema. Bouwen op de
-  gedeelde **SDK** (`packages/sdk`, Python-pakket `mywork_sdk`).
+- **app-services**: elk een eigen FastAPI-service, gebouwd op de gedeelde **SDK**
+  (`packages/sdk`, Python-pakket `mywork_sdk`).
 - **web**: de schil (inloggen, app-menu, thema) waarin de schermen van apps laden.
 
-## Het app-contract
+## 3. Het app-contract
 
 Elke app-service levert minimaal:
 
 | Endpoint | Doel |
 | --- | --- |
-| `GET /health` | Status voor de core en Docker |
+| `GET /health` | Status voor core, Docker en Kubernetes-probes |
 | `GET /manifest` | Wie de app is en wat hij nodig heeft / aanbiedt |
 | `GET /openapi.json` | De API-beschrijving (automatisch door FastAPI) |
 
@@ -65,7 +90,16 @@ publishes:                      # events die de app verstuurt
 subscribes: []                  # events waarop de app reageert
 ```
 
-## Gegevensuitwisseling tussen apps
+Naamgeving die overal gelijk moet zijn (bewaakt door tests):
+
+| Wat | Waarde voor app `<id>` |
+| --- | --- |
+| Docker Compose-service / Kubernetes Deployment + Service | `app-<id>` |
+| Publiek pad (gateway) | `/api/apps/<id>/` |
+| `ROOT_PATH` van de service | `/api/apps/<id>` |
+| Regel in `HUB_APPS` | `<id>=http://app-<id>:8000` |
+
+## 4. Gegevensuitwisseling tussen apps
 
 1. **Synchrone API-aanroepen**: app A roept de API van app B aan via
    `/api/apps/b/...`. Vanaf fase 3 haalt A daarvoor bij de core een kortlevend
@@ -78,14 +112,14 @@ subscribes: []                  # events waarop de app reageert
 
 Elke aanvraag en elk event draagt de klant (tenant) mee; de SDK zet die context klaar.
 
-## Multi-tenancy
+## 5. Multi-tenancy
 
 Eén PostgreSQL-cluster; elke service krijgt een eigen schema en database-gebruiker.
 Elke tabel met klantdata heeft een `tenant_id` met PostgreSQL Row-Level Security, zodat
 een fout in een app nooit data van een andere klant kan lekken. De klant wordt bepaald
 uit het subdomein (`klant.myworkhub.nl`) en vastgelegd in het token.
 
-## Theming
+## 6. Theming
 
 De core is de enige bron van het thema:
 
@@ -100,10 +134,127 @@ maten worden gevalideerd, zodat klantinvoer geen eigen CSS kan injecteren.
 Fase 1 levert het standaardthema; vanaf fase 2 heeft elke klant een eigen thema in de
 database, te beheren via de core-API.
 
-## Fasering
+## 7. Draaien: Docker en Kubernetes
 
-1. **Projectopzet** — monorepo, SDK, core, voorbeeld-app, gateway, web-schil, Docker, CI.
+Beide gebruiken dezelfde vier images: `mywork-hub-gateway`, `mywork-hub-core`,
+`mywork-hub-app-<id>` en `mywork-hub-web`. Alle containers draaien als niet-root.
+
+| | Docker Compose | Kubernetes |
+| --- | --- | --- |
+| Voor | Kleine installaties, ontwikkelen | Productie, schalen |
+| Bestand | `docker-compose.yml` | `deploy/kubernetes/` (Kustomize) |
+| Ingang | gateway op poort 8080 | Ingress → gateway |
+| Schalen | 1 container per service | HPA per service (CPU 70%), min. 2 replica's |
+| Beschikbaarheid | `restart: unless-stopped` | PodDisruptionBudget, rolling updates, spreiding over nodes |
+| PostgreSQL / Redis | Containers in de compose | Extern: managed dienst of operator (bijv. CloudNativePG) |
+| Instellingen | `.env` | ConfigMap `hub-config`, Secret `hub-secrets` |
+| DNS in gateway | `NGINX_RESOLVER=127.0.0.11`, geen suffix | kube-dns + `HUB_SERVICE_SUFFIX=.<namespace>.svc.cluster.local` |
+
+Starten:
+
+```bash
+docker compose up -d --build                                   # Docker
+kubectl apply -k deploy/kubernetes/overlays/production         # Kubernetes
+```
+
+De productie-overlay zet namespace, image-namen/tags (`ghcr.io/wizzard722/...`) en de
+domeinnaam. Images bouwen en publiceren naar een registry is nog niet geautomatiseerd.
+
+## 8. Tests
+
+Alle tests staan in de repository en draaien in CI (`.github/workflows/ci.yml`).
+
+| Soort | Waar | Wat | Draaien |
+| --- | --- | --- | --- |
+| Unit — SDK | `packages/sdk/tests/` | Manifest-validatie, standaard-endpoints | `uv run pytest` |
+| Unit — core | `services/core/tests/` | Theming (ook CSS-injectie), app-register, config | `uv run pytest` |
+| Unit — apps | `apps/<id>/tests/` | API en manifest van de app | `uv run pytest` |
+| Deployment | `tests/deploy/` | Compose en Kubernetes gelijk, probes, limieten, non-root, HPA/PDB, naamgeving | `uv run pytest` |
+| Integratie | `tests/integration/` | Core en app als echte processen die via HTTP praten | `uv run pytest` |
+| Frontend | `web/src/__tests__/` | Web-schil: thema, app-lijst, foutmeldingen | `cd web && npm test` |
+| Kubernetes-schema | CI-job `kubernetes` | Kustomize renderen + kubeconform | alleen CI |
+| Rooktest | CI-job `docker` | Hele stack via gateway (`docker compose up`) | alleen CI |
+
+Regel: nieuwe code komt met tests in dezelfde commit.
+
+## 9. Ontwerp (mockups)
+
+Twee varianten van de core hub staan op een ontwerpcanvas:
+<https://claude.ai/artifact/WLLG5HGAevDZpNTHW5YfBG>
+
+- **Variant A — Zijbalk**: vaste navigatie links (apps en beheer), zoekbalk bovenaan,
+  dashboard met widgets (vandaag, recente bestanden, taken, meldingen, app-status).
+- **Variant B — App-dock bovenin**: apps als dock in een gekleurde bovenbalk, centrale
+  zoekbalk, app-tegels en een activiteitenstroom.
+
+Beide gebruiken alleen de themakleuren; de accentkleur is op het canvas aan te passen
+om theming per klant te laten zien.
+
+## 10. Structuur van de repository
+
+```
+mywork-hub/
+├── CLAUDE.md                          Werkafspraken voor ontwikkelen met Claude
+├── README.md                          Snel starten
+├── LICENSE
+├── pyproject.toml                     uv-workspace, ruff- en pytest-instellingen
+├── uv.lock                            Vastgezette Python-afhankelijkheden
+├── docker-compose.yml                 Hele hub op één machine
+├── .env.example                       Voorbeeldinstellingen voor Docker
+├── .dockerignore / .gitignore
+├── .github/workflows/ci.yml           CI: python, web, kubernetes, docker
+├── docs/
+│   └── architecture.md                Dit document
+├── packages/
+│   └── sdk/                           Python-SDK voor core en apps (mywork_sdk)
+│       ├── src/mywork_sdk/
+│       │   ├── manifest.py            AppManifest, EventSpec, load_manifest
+│       │   └── service.py             create_service: /health en /manifest
+│       └── tests/
+├── services/
+│   └── core/                          Core-service
+│       ├── src/core/
+│       │   ├── main.py                FastAPI-app
+│       │   ├── config.py              Instellingen (HUB_*)
+│       │   ├── theming.py             Thema als JSON en CSS
+│       │   └── registry.py            App-register en statuscontrole
+│       └── tests/
+├── apps/
+│   └── hello/                         Voorbeeld-app als losse service
+│       ├── manifest.yaml
+│       ├── src/hello/main.py
+│       └── tests/
+├── web/                               React-schil (Vite + TypeScript)
+│   ├── index.html                     Laadt theme.css uit de core
+│   ├── src/
+│   │   ├── main.tsx / App.tsx         Schil en app-overzicht
+│   │   ├── api.ts                     Aanroepen naar de core
+│   │   ├── theme/ThemeProvider.tsx    Thema-context (naam, logo, favicon)
+│   │   ├── styles.css                 Alleen --mw-*-variabelen
+│   │   └── __tests__/                 Frontend-tests (Vitest)
+│   ├── nginx.conf / Dockerfile        Productie-image (poort 8080, non-root)
+│   └── vite.config.ts / vitest.config.ts
+├── gateway/
+│   ├── default.conf.template          nginx-routering (Docker en Kubernetes)
+│   └── Dockerfile
+├── docker/
+│   ├── python-service.Dockerfile      Gedeelde Dockerfile voor core en apps
+│   └── empty/                         Lege map voor services zonder manifest
+├── deploy/
+│   └── kubernetes/
+│       ├── base/                      Deployments, Services, HPA, PDB, Ingress, ConfigMaps
+│       └── overlays/production/       Namespace, images, domeinnaam
+└── tests/
+    ├── deploy/                        Tests op Docker- en Kubernetes-configuratie
+    └── integration/                   Integratietests over services heen
+```
+
+## 11. Fasering
+
+1. **Projectopzet** ✅ — monorepo, SDK, core, voorbeeld-app, gateway, web-schil, Docker,
+   Kubernetes, tests, CI, mockups.
 2. Klanten, gebruikers, inloggen, rechten, Row-Level Security, thema per klant.
 3. App-register in de database, apps per klant aan/uit, service-tokens.
 4. Events tussen apps via Redis Streams; twee voorbeeld-apps die data uitwisselen.
-5. Web-schil: inloggen, app-menu, ingeladen app-schermen, thema-beheer.
+5. Web-schil volgens gekozen mockup: inloggen, app-menu, ingeladen app-schermen,
+   thema-beheer.

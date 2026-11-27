@@ -1,0 +1,18 @@
+# Voorbeeld-overlay voor productie:  kubectl apply -k deploy/kubernetes/overlays/production
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mywork-hub
+resources:
+  - namespace.yaml
+  - ../../base
+images:
+  - { name: mywork-hub-gateway, newName: ghcr.io/wizzard722/mywork-hub-gateway, newTag: "0.1.0" }
+  - { name: mywork-hub-core, newName: ghcr.io/wizzard722/mywork-hub-core, newTag: "0.1.0" }
+  - { name: mywork-hub-app-hello, newName: ghcr.io/wizzard722/mywork-hub-app-hello, newTag: "0.1.0" }
+  - { name: mywork-hub-web, newName: ghcr.io/wizzard722/mywork-hub-web, newTag: "0.1.0" }
+patches:
+  - target: { kind: Ingress, name: mywork-hub }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: hub.example.com

@@ -2,9 +2,15 @@
 #   /api/core/...        -> core-service
 #   /api/apps/<id>/...   -> app-service "app-<id>"
 #   /                    -> web-schil
-# Upstreams via variabelen + Docker-DNS, zodat de gateway ook start als een app
-# (nog) niet draait; zo'n app geeft dan 502.
-resolver 127.0.0.11 valid=10s ipv6=off;
+#
+# Dit is een template: het nginx-image vult bij het starten de omgevingsvariabelen in.
+#   NGINX_RESOLVER        Docker: 127.0.0.11
+#                         Kubernetes: kube-dns.kube-system.svc.cluster.local
+#   HUB_SERVICE_SUFFIX    Docker: leeg
+#                         Kubernetes: .<namespace>.svc.cluster.local
+# Upstreams via variabelen + DNS, zodat de gateway ook start als een app (nog) niet
+# draait; zo'n app geeft dan 502.
+resolver ${NGINX_RESOLVER} valid=10s ipv6=off;
 
 server {
     listen 8080;
@@ -18,14 +24,19 @@ server {
     proxy_set_header X-Request-ID $request_id;
     add_header X-Request-ID $request_id always;
 
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
     location /api/core/ {
-        set $core_upstream http://core:8000;
+        set $core_upstream http://core${HUB_SERVICE_SUFFIX}:8000;
         rewrite ^/api/core/(.*)$ /$1 break;
         proxy_pass $core_upstream;
     }
 
     location ~ ^/api/apps/(?<app_id>[a-z][a-z0-9-]{1,38}[a-z0-9])/(?<app_path>.*)$ {
-        set $app_upstream http://app-$app_id:8000;
+        set $app_upstream http://app-$app_id${HUB_SERVICE_SUFFIX}:8000;
         rewrite ^ /$app_path break;
         proxy_pass $app_upstream;
     }
@@ -35,7 +46,7 @@ server {
     }
 
     location / {
-        set $web_upstream http://web:80;
+        set $web_upstream http://web${HUB_SERVICE_SUFFIX}:8080;
         proxy_pass $web_upstream;
     }
 }
