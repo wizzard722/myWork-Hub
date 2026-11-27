@@ -26,7 +26,7 @@ FROM ${PYTHON_IMAGE}
 COPY --from=build /opt/venv /opt/venv
 # Map met het manifest van een app; voor de core blijft dit leeg.
 ARG APP_DIR=docker/empty
-COPY ${APP_DIR}/manifest.yam[l] /app/
+COPY ${APP_DIR}/ /app/
 WORKDIR /app
 ARG MODULE
 ENV MODULE=${MODULE} ROOT_PATH="" PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH"
